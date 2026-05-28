@@ -36,7 +36,6 @@ window.App = {
   state: {
     profiles:[], properties:[], expenses:[], goals:[],
     incomeEntries:[], rentalIncome:0,
-    goalDeposits:[],
     activeExp:'All', scanFile:null, scanCatSel:null,
     editingGoalId:null, editingPropId:null, editingIncomeId:null,
     expDateFrom:'', expDateTo:'', incDateFrom:'', incDateTo:''
@@ -54,10 +53,9 @@ window.App = {
   },
 
   async loadAll() {
-    const [profiles, properties, expenses, goals, rental, incomeEntries, goalDeposits] = await Promise.all([
+    const [profiles, properties, expenses, goals, rental, incomeEntries] = await Promise.all([
       DB.getAll('profiles'), DB.getAll('properties'), DB.getAll('expenses'),
-      DB.getAll('goals'), DB.getAll('rental_income'), DB.getAll('income_entries'),
-      DB.getAll('goal_deposits')
+      DB.getAll('goals'), DB.getAll('rental_income'), DB.getAll('income_entries')
     ]);
     this.state.profiles = profiles || [];
     this.state.properties = properties || [];
@@ -65,7 +63,6 @@ window.App = {
     this.state.goals = (goals||[]).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
     this.state.rentalIncome = rental?.[0]?.total_monthly || 0;
     this.state.incomeEntries = incomeEntries || [];
-    this.state.goalDeposits = goalDeposits || [];
   },
 
   renderAll() {
@@ -115,19 +112,18 @@ window.App = {
   getTotalCashFlow() { return this.state.properties.reduce((s,p)=>s+parseNum(p.rent_income)-parseNum(p.mortgage)-parseNum(p.insurance_tax),0); },
   getTotalEquity() { return this.state.properties.reduce((s,p)=>s+parseNum(p.current_value)-parseNum(p.loan_balance),0); },
   getGoalsAllocated() {
-    // Planned monthly budget placeholder — shown for info only
     return this.state.goals.filter(g=>g.goal_type!=='lifestyle').reduce((s,g)=>s+parseNum(g.monthly_allocation),0);
   },
-  getThisMonthGoalDeposits() {
-    // Actual money moved into goals this month
-    const now = new Date(); const m=now.getMonth(), y=now.getFullYear();
-    return (this.state.goalDeposits||[]).filter(d=>{ const dt=parseDate(d.date); return dt.getMonth()===m&&dt.getFullYear()===y; }).reduce((s,d)=>s+parseNum(d.amount),0);
-  },
-  getFreeCash() {
-    return this.getTotalIncome() - this.getTotalExpenses() - this.getThisMonthGoalDeposits();
+  getTotalActualGoalsSaved() {
+    // Sum of all money actually moved into savings goals (lifestyle excluded)
+    return this.state.goals.filter(g=>g.goal_type!=='lifestyle').reduce((s,g)=>s+parseNum(g.saved),0);
   },
   getUnassigned() {
-    return this.getTotalIncome() - this.getTotalExpenses() - this.getThisMonthGoalDeposits();
+    // Income minus expenses minus actual money sitting in goals
+    return this.getTotalIncome() - this.getTotalExpenses() - this.getTotalActualGoalsSaved();
+  },
+  getFreeCash() {
+    return this.getUnassigned();
   },
   getTotalOpeningBalance() {
     return this.state.profiles.reduce((s,p)=>s+parseNum(p.opening_balance),0);
@@ -627,10 +623,10 @@ window.App = {
           ${this.getThisMonthSideHustle()>0?`<div class="summary-row"><span class="sr-lbl">Side hustle (this month)</span><span class="sr-val" style="color:var(--accent)">+${fmt(this.getThisMonthSideHustle())}</span></div>`:''}
           <div class="summary-row" style="padding-bottom:8px;margin-bottom:4px;border-bottom:1px solid var(--border2)"><span class="sr-lbl" style="font-weight:800">=  Total income</span><span class="sr-val" style="font-weight:800">${fmt(this.getTotalIncome())}</span></div>
           <div class="summary-row"><span class="sr-lbl">− Expenses (actual spending)</span><span class="sr-val" style="color:var(--danger)">−${fmt(this.getTotalExpenses())}</span></div>
-          <div class="summary-row"><span class="sr-lbl">− Goal deposits (this month)</span><span class="sr-val" style="color:var(--danger)">−${fmt(this.getThisMonthGoalDeposits())}</span></div>
+          <div class="summary-row"><span class="sr-lbl">− Money in goals (total saved)</span><span class="sr-val" style="color:var(--danger)">−${fmt(this.getTotalActualGoalsSaved())}</span></div>
           <div style="background:var(--faint);border-radius:8px;padding:6px 10px;margin:6px 0;font-size:11px;color:var(--muted)">
             <i class="ti ti-info-circle" style="font-size:12px;vertical-align:-1px;margin-right:4px"></i>
-            Monthly allocation (planned budget): ${fmt(allocated)}/mo — use ↑ Add funds to actually move money
+            Planned monthly allocation: ${fmt(allocated)}/mo — tap "+ Add funds" on a goal to move money
           </div>
           <div class="summary-row" style="border-top:1.5px solid var(--border2);padding-top:8px;margin-top:4px">
             <span class="sr-lbl" style="font-weight:800;color:var(--text)">= Unassigned cash</span>
@@ -785,9 +781,6 @@ window.App = {
       const completed=newSaved>=parseNum(g.target);
       await DB.update('goals',id,{saved:newSaved,completed});
       g.saved=newSaved; g.completed=completed;
-      // Log the deposit so it reduces unassigned cash this month
-      const deposit = await DB.insert('goal_deposits',{ goal_id:id, goal_name:g.title, amount, date:today });
-      this.state.goalDeposits.unshift(deposit);
       if (completed) { setTimeout(()=>this.launchConfetti(id),400); this.showToast('🎉 Goal reached!','success');
         this.renderGoals(); this.renderDashboard(); return; }
     }
