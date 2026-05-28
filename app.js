@@ -598,7 +598,8 @@ window.App = {
   renderGoals() {
     const allocated=this.getGoalsAllocated();
     const income=this.getTotalIncome();
-    const free=income-allocated;
+    const expenses=this.getTotalExpenses();
+    const free=income-expenses-allocated;
 
     document.getElementById('goals-content').innerHTML = `
       <div style="padding:18px">
