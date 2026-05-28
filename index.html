@@ -13,80 +13,57 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-
 <div class="phone">
-  <!-- Status bar -->
   <div class="status-bar">
     <span id="clock">9:41</span>
-    <span style="display:flex;align-items:center;gap:4px"><span id="sync-dot" class="sync-dot" title="Online"></span><span id="sync-label" style="font-size:10px;color:var(--muted)">Synced</span></span>
+    <span style="display:flex;align-items:center;gap:4px">
+      <span id="sync-dot" class="sync-dot"></span>
+      <span id="sync-label" style="font-size:10px;color:var(--muted)">Synced</span>
+    </span>
     <span><i class="ti ti-wifi" style="font-size:13px"></i></span>
   </div>
 
-  <!-- DASHBOARD PAGE -->
-  <div class="page active screen" id="page-dash">
-    <div id="dash-content"></div>
-  </div>
+  <div class="page active screen" id="page-dash"><div id="dash-content"></div></div>
+  <div class="page screen" id="page-salary"><div id="salary-content"></div></div>
+  <div class="page screen" id="page-exp"><div id="expenses-content"></div></div>
+  <div class="page screen" id="page-goals"><div id="goals-content"></div></div>
+  <div class="page screen" id="page-props"><div id="props-content"></div></div>
 
-  <!-- SALARY PAGE -->
-  <div class="page screen" id="page-salary">
-    <div id="salary-content"></div>
-  </div>
-
-  <!-- EXPENSES PAGE -->
-  <div class="page screen" id="page-exp">
-    <div id="expenses-content"></div>
-  </div>
-
-  <!-- GOALS PAGE -->
-  <div class="page screen" id="page-goals">
-    <div id="goals-content"></div>
-  </div>
-
-  <!-- PROPERTIES PAGE -->
-  <div class="page screen" id="page-props">
-    <div id="props-content"></div>
-  </div>
-
-  <!-- BOTTOM NAV -->
   <div class="bottom-nav">
-    <button class="nav-btn active" id="nav-dash" onclick="App.switchPage('dash')">
-      <i class="ti ti-layout-dashboard"></i><span>Dashboard</span>
-    </button>
-    <button class="nav-btn" id="nav-salary" onclick="App.switchPage('salary')">
-      <i class="ti ti-currency-dollar"></i><span>Income</span>
-    </button>
-    <button class="nav-btn" id="nav-exp" onclick="App.switchPage('exp')">
-      <i class="ti ti-receipt"></i><span>Expenses</span>
-    </button>
-    <button class="nav-btn" id="nav-goals" onclick="App.switchPage('goals')">
-      <i class="ti ti-target"></i><span>Goals</span>
-    </button>
-    <button class="nav-btn" id="nav-props" onclick="App.switchPage('props')">
-      <i class="ti ti-building"></i><span>Properties</span>
-    </button>
+    <button class="nav-btn active" id="nav-dash" onclick="App.switchPage('dash')"><i class="ti ti-layout-dashboard"></i><span>Dashboard</span></button>
+    <button class="nav-btn" id="nav-salary" onclick="App.switchPage('salary')"><i class="ti ti-currency-dollar"></i><span>Income</span></button>
+    <button class="nav-btn" id="nav-exp" onclick="App.switchPage('exp')"><i class="ti ti-receipt"></i><span>Expenses</span></button>
+    <button class="nav-btn" id="nav-goals" onclick="App.switchPage('goals')"><i class="ti ti-target"></i><span>Goals</span></button>
+    <button class="nav-btn" id="nav-props" onclick="App.switchPage('props')"><i class="ti ti-building"></i><span>Properties</span></button>
   </div>
 </div>
 
-<!-- ════════════════════════════════════════════
-     SCAN / ADD EXPENSE SHEET
-════════════════════════════════════════════ -->
+<!-- ── EXPENSE SHEET ── -->
 <div class="overlay" id="scanSheet">
   <div class="sheet">
     <div class="sheet-hd">
       <h4>Add expense</h4>
       <button class="sheet-close" onclick="App.closeSheet('scanSheet')"><i class="ti ti-x"></i></button>
     </div>
-
-    <img id="scan-preview" style="display:none;width:100%;max-height:160px;object-fit:contain;border-radius:12px;margin-bottom:14px;border:1px solid var(--border)" alt="Receipt">
-
-    <div style="background:var(--faint);border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center" id="scan-ai-note">
-      <i class="ti ti-sparkles" style="font-size:16px;color:var(--accent)"></i>
-      AI tip: upload a receipt photo and fill in details below
-    </div>
-
+    <img id="scan-preview" style="display:none;width:100%;max-height:150px;object-fit:contain;border-radius:12px;margin-bottom:12px;border:1px solid var(--border)" alt="Receipt">
     <div class="field"><label>Expense name</label><input type="text" id="scan-name" placeholder="e.g. Netto groceries"></div>
     <div class="field"><label>Amount (kr.)</label><input type="number" id="scan-amount" placeholder="0"></div>
     <div class="field"><label>Date</label><input type="date" id="scan-date"></div>
+
+    <!-- Recurring toggle -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 12px;background:var(--faint);border-radius:10px">
+      <input type="checkbox" id="exp-recurring-cb" style="width:18px;height:18px;accent-color:var(--accent)" onchange="document.getElementById('exp-recurrence-row').style.display=this.checked?'block':'none'">
+      <label for="exp-recurring-cb" style="font-size:13px;font-weight:700;cursor:pointer"><i class="ti ti-refresh" style="font-size:14px;vertical-align:-2px;margin-right:4px;color:var(--accent)"></i> Recurring expense</label>
+    </div>
+    <div id="exp-recurrence-row" style="display:none" class="field">
+      <label>Repeats</label>
+      <select id="exp-recurrence">
+        <option value="monthly">Monthly</option>
+        <option value="bi-weekly">Bi-weekly</option>
+        <option value="weekly">Weekly</option>
+        <option value="yearly">Yearly</option>
+      </select>
+    </div>
 
     <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Category</div>
     <div class="cat-grid">
@@ -102,19 +79,14 @@
       <button class="cat-btn" data-cat="Personal" onclick="App.selectCat('Personal')"><i class="ti ti-user" style="font-size:15px"></i> Personal</button>
       <button class="cat-btn" data-cat="Other" onclick="App.selectCat('Other')"><i class="ti ti-dots" style="font-size:15px"></i> Other</button>
     </div>
-
     <div class="sheet-actions">
       <button class="btn-outline" onclick="App.closeSheet('scanSheet')">Cancel</button>
-      <button class="btn-primary" id="confirm-expense-btn" onclick="App.confirmExpense()" style="margin:0;flex:1">
-        <i class="ti ti-check"></i> Save expense
-      </button>
+      <button class="btn-primary" id="confirm-expense-btn" onclick="App.confirmExpense()" style="margin:0;flex:1"><i class="ti ti-check"></i> Save expense</button>
     </div>
   </div>
 </div>
 
-<!-- ════════════════════════════════════════════
-     ADD / EDIT GOAL SHEET
-════════════════════════════════════════════ -->
+<!-- ── GOAL SHEET ── -->
 <div class="overlay" id="goalSheet">
   <div class="sheet">
     <div class="sheet-hd">
@@ -122,9 +94,31 @@
       <button class="sheet-close" onclick="App.closeSheet('goalSheet')"><i class="ti ti-x"></i></button>
     </div>
     <div class="field"><label>Goal name</label><input type="text" id="goal-title-in" placeholder="e.g. Emergency fund"></div>
-    <div class="field"><label>Target amount (kr.)</label><input type="number" id="goal-target-in" placeholder="0"></div>
-    <div class="field"><label>Already saved (kr.)</label><input type="number" id="goal-saved-in" placeholder="0"></div>
-    <div class="field"><label>Monthly allocation (kr.)</label><input type="number" id="goal-alloc-in" placeholder="0"></div>
+    <div class="field">
+      <label>Goal type</label>
+      <select id="goal-type-sel" onchange="App.toggleGoalType(this.value)">
+        <option value="savings">Savings goal (fixed target)</option>
+        <option value="lifestyle">Lifestyle fund (flexible spend)</option>
+      </select>
+    </div>
+
+    <!-- Savings fields -->
+    <div id="goal-savings-fields">
+      <div class="field"><label>Target amount (kr.)</label><input type="number" id="goal-target-in" placeholder="0"></div>
+      <div class="field"><label>Already saved (kr.)</label><input type="number" id="goal-saved-in" placeholder="0"></div>
+      <div class="field"><label>Monthly allocation (kr.)</label><input type="number" id="goal-alloc-in" placeholder="0"></div>
+    </div>
+
+    <!-- Lifestyle fields -->
+    <div id="goal-lifestyle-fields" style="display:none">
+      <div style="background:#E6F1FB;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#185FA5">
+        <i class="ti ti-info-circle" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>
+        A lifestyle fund has a maximum cap. You can freely top up and withdraw. Great for "fun money" or a shared spending budget.
+      </div>
+      <div class="field"><label>Monthly spending cap (kr.)</label><input type="number" id="goal-cap-in" placeholder="e.g. 5000"></div>
+      <div class="field"><label>Current balance (kr.)</label><input type="number" id="goal-balance-in" placeholder="0"></div>
+    </div>
+
     <div class="field">
       <label>Icon</label>
       <select id="goal-icon-sel">
@@ -138,6 +132,9 @@
         <option value="ti-cash">💵 Cash reserve</option>
         <option value="ti-target">🎯 Goal</option>
         <option value="ti-star">⭐ Dream</option>
+        <option value="ti-shopping-bag">🛍 Lifestyle fund</option>
+        <option value="ti-mood-happy">😊 Fun money</option>
+        <option value="ti-glass-full">🥂 Entertainment</option>
       </select>
     </div>
     <div class="sheet-actions">
@@ -147,9 +144,36 @@
   </div>
 </div>
 
-<!-- ════════════════════════════════════════════
-     ADD / EDIT PROPERTY SHEET
-════════════════════════════════════════════ -->
+<!-- ── SIDE HUSTLE / INCOME SHEET ── -->
+<div class="overlay" id="incomeSheet">
+  <div class="sheet">
+    <div class="sheet-hd">
+      <h4>Log income</h4>
+      <button class="sheet-close" onclick="App.closeSheet('incomeSheet')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="field"><label>Description</label><input type="text" id="income-desc" placeholder="e.g. Freelance project, eBay sale..."></div>
+    <div class="field"><label>Amount (kr.)</label><input type="number" id="income-amount" placeholder="0"></div>
+    <div class="field"><label>Date received</label><input type="date" id="income-date"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 12px;background:var(--faint);border-radius:10px">
+      <input type="checkbox" id="income-recurring" style="width:18px;height:18px;accent-color:var(--accent)" onchange="document.getElementById('income-recurrence-row').style.display=this.checked?'block':'none'">
+      <label for="income-recurring" style="font-size:13px;font-weight:700;cursor:pointer"><i class="ti ti-refresh" style="font-size:14px;vertical-align:-2px;margin-right:4px;color:var(--accent)"></i> Recurring income</label>
+    </div>
+    <div id="income-recurrence-row" style="display:none" class="field">
+      <label>Frequency</label>
+      <select id="income-recurrence">
+        <option value="bi-weekly">Every 2 weeks</option>
+        <option value="monthly">Monthly</option>
+        <option value="weekly">Weekly</option>
+      </select>
+    </div>
+    <div class="sheet-actions">
+      <button class="btn-outline" onclick="App.closeSheet('incomeSheet')">Cancel</button>
+      <button class="btn-primary" onclick="App.saveIncome()" style="margin:0;flex:1"><i class="ti ti-check"></i> Log income</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── PROPERTY SHEET ── -->
 <div class="overlay" id="propSheet">
   <div class="sheet">
     <div class="sheet-hd">
@@ -158,15 +182,12 @@
     </div>
     <div class="field"><label>Property name</label><input type="text" id="prop-name" placeholder="e.g. Maple Street Duplex"></div>
     <div class="field"><label>Address</label><input type="text" id="prop-addr" placeholder="Street, city"></div>
-    <div class="field">
-      <label>Status</label>
-      <select id="prop-status">
-        <option>Rented</option><option>Vacant</option><option>Under renovation</option><option>Primary residence</option>
-      </select>
+    <div class="field"><label>Status</label>
+      <select id="prop-status"><option>Rented</option><option>Vacant</option><option>Under renovation</option><option>Primary residence</option></select>
     </div>
     <div class="divider"></div>
     <div class="field"><label>Monthly rent income (kr.)</label><input type="number" id="prop-rent" placeholder="0"></div>
-    <div class="field"><label>Monthly mortgage payment (kr.)</label><input type="number" id="prop-mortgage" placeholder="0"></div>
+    <div class="field"><label>Monthly mortgage (kr.)</label><input type="number" id="prop-mortgage" placeholder="0"></div>
     <div class="field"><label>Monthly insurance + tax (kr.)</label><input type="number" id="prop-ins" placeholder="0"></div>
     <div class="divider"></div>
     <div class="field"><label>Purchase price (kr.)</label><input type="number" id="prop-purchase" placeholder="0"></div>
@@ -179,9 +200,7 @@
   </div>
 </div>
 
-<!-- Toast -->
 <div id="toast" class="toast"></div>
-
 <script src="/db.js"></script>
 <script src="/app.js"></script>
 </body>

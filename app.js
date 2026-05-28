@@ -1,9 +1,8 @@
-// app.js — Ducay Property Portfolio App
+// app.js — Ducay Property Portfolio App v2
 
 const CURRENCY = 'kr.';
 const fmt = n => Number(n||0).toLocaleString('da-DK', {minimumFractionDigits:0,maximumFractionDigits:0}) + ' ' + CURRENCY;
-const fmtInput = n => Number(n||0).toLocaleString('da-DK', {minimumFractionDigits:0,maximumFractionDigits:0});
-const parseNum = s => parseFloat(String(s).replace(/[^\d.]/g,'')) || 0;
+const parseNum = s => parseFloat(String(s).replace(/[^\d.-]/g,'')) || 0;
 
 const CAT_COLORS = {
   Housing:'#FAEEDA', Food:'#E6F1FB', Transport:'#EAF3DE',
@@ -24,35 +23,37 @@ const CAT_TEXT = {
   Personal:'#993556', Other:'#6b6b6b'
 };
 
-const GOAL_ICONS = ['ti-shield-check','ti-building-bank','ti-hammer','ti-plane','ti-car','ti-heart','ti-star','ti-piggy-bank','ti-cash','ti-target'];
-
 window.App = {
-  state: { profiles:[], properties:[], expenses:[], goals:[], rentalIncome:0, activeExp:'All', scanFile:null, scanCatSel:null, editingGoalId:null, editingExpId:null, editingPropId:null },
+  state: {
+    profiles:[], properties:[], expenses:[], goals:[],
+    incomeEntries:[], rentalIncome:0,
+    activeExp:'All', scanFile:null, scanCatSel:null,
+    editingGoalId:null, editingPropId:null, editingIncomeId:null,
+    dragGoalId:null, dragOverId:null
+  },
 
   async init() {
     this.updateClock();
-    setInterval(()=>this.updateClock(),30000);
+    setInterval(()=>this.updateClock(), 30000);
     this.updateOnlineStatus();
-    window.addEventListener('online', ()=>this.updateOnlineStatus());
-    window.addEventListener('offline', ()=>this.updateOnlineStatus());
+    window.addEventListener('online', ()=>{ this.updateOnlineStatus(); DB.syncQueue(); this.showToast('Back online — syncing...','success'); });
+    window.addEventListener('offline', ()=>{ this.updateOnlineStatus(); this.showToast('Offline — changes saved locally','warning'); });
     await this.loadAll();
     this.renderAll();
-    // Register SW
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(()=>{});
-    }
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
   },
 
   async loadAll() {
-    const [profiles, properties, expenses, goals, rental] = await Promise.all([
+    const [profiles, properties, expenses, goals, rental, incomeEntries] = await Promise.all([
       DB.getAll('profiles'), DB.getAll('properties'), DB.getAll('expenses'),
-      DB.getAll('goals'), DB.getAll('rental_income')
+      DB.getAll('goals'), DB.getAll('rental_income'), DB.getAll('income_entries')
     ]);
     this.state.profiles = profiles || [];
     this.state.properties = properties || [];
     this.state.expenses = expenses || [];
-    this.state.goals = goals || [];
+    this.state.goals = (goals||[]).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
     this.state.rentalIncome = rental?.[0]?.total_monthly || 0;
+    this.state.incomeEntries = incomeEntries || [];
   },
 
   renderAll() {
@@ -70,23 +71,29 @@ window.App = {
 
   updateOnlineStatus() {
     const dot = document.getElementById('sync-dot');
+    const lbl = document.getElementById('sync-label');
     if (!dot) return;
-    if (navigator.onLine) { dot.className='sync-dot'; dot.title='Online'; }
-    else { dot.className='sync-dot offline'; dot.title='Offline'; }
+    if (navigator.onLine) { dot.className='sync-dot'; if(lbl) lbl.textContent='Synced'; }
+    else { dot.className='sync-dot offline'; if(lbl) lbl.textContent='Offline'; }
   },
 
   showToast(msg, type='') {
     let t = document.getElementById('toast');
-    if (!t) { t=document.createElement('div'); t.id='toast'; t.className='toast'; document.body.appendChild(t); }
     t.textContent = msg; t.className = 'toast show ' + type;
     clearTimeout(this._toastTimer);
-    this._toastTimer = setTimeout(()=>t.classList.remove('show'), 3000);
+    this._toastTimer = setTimeout(()=>t.classList.remove('show'), 3200);
   },
 
   // ── COMPUTED ──────────────────────────────────────────────────────────────
+  getTotalSalary() {
+    return this.state.profiles.reduce((s,p)=>s+parseNum(p.monthly_salary)+parseNum(p.bonus),0);
+  },
+  getThisMonthSideHustle() {
+    const now = new Date(); const m=now.getMonth(), y=now.getFullYear();
+    return this.state.incomeEntries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===m&&d.getFullYear()===y; }).reduce((s,e)=>s+parseNum(e.amount),0);
+  },
   getTotalIncome() {
-    const sal = this.state.profiles.reduce((s,p)=>s+parseNum(p.monthly_salary)+parseNum(p.bonus),0);
-    return sal + parseNum(this.state.rentalIncome);
+    return this.getTotalSalary() + parseNum(this.state.rentalIncome) + this.getThisMonthSideHustle();
   },
   getTotalExpenses() {
     const now = new Date(); const m=now.getMonth(), y=now.getFullYear();
@@ -95,25 +102,34 @@ window.App = {
   getTotalRent() { return this.state.properties.reduce((s,p)=>s+parseNum(p.rent_income),0); },
   getTotalCashFlow() { return this.state.properties.reduce((s,p)=>s+parseNum(p.rent_income)-parseNum(p.mortgage)-parseNum(p.insurance_tax),0); },
   getTotalEquity() { return this.state.properties.reduce((s,p)=>s+parseNum(p.current_value)-parseNum(p.loan_balance),0); },
-  getGoalsAllocated() { return this.state.goals.reduce((s,g)=>s+parseNum(g.monthly_allocation),0); },
-  getFreeCash() { return this.getTotalIncome() - this.getTotalExpenses(); },
+  getGoalsAllocated() {
+    return this.state.goals.filter(g=>!g.completed&&g.goal_type!=='lifestyle').reduce((s,g)=>s+parseNum(g.monthly_allocation),0);
+  },
+  getFreeCash() {
+    return this.getTotalIncome() - this.getTotalExpenses() - this.getGoalsAllocated();
+  },
+  getTotalOpeningBalance() {
+    return this.state.profiles.reduce((s,p)=>s+parseNum(p.opening_balance),0);
+  },
+  getTotalSaved() {
+    return this.state.goals.reduce((s,g)=>s+parseNum(g.goal_type==='lifestyle'?g.lifestyle_balance:g.saved),0);
+  },
 
   // ── DASHBOARD ─────────────────────────────────────────────────────────────
   renderDashboard() {
     const p1 = this.state.profiles[0]||{name:'Jovannie Ducay'};
     const p2 = this.state.profiles[1]||{name:'Melody Ducay'};
     const n1 = p1.name.split(' ')[0], n2 = p2.name.split(' ')[0];
-    const init1 = (p1.name.split(' ')[0][0]||'J')+(p1.name.split(' ')[1]?.[0]||'D');
-    const init2 = (p2.name.split(' ')[0][0]||'M')+(p2.name.split(' ')[1]?.[0]||'D');
+    const init1 = (p1.name[0]||'J')+(p1.name.split(' ')[1]?.[0]||'D');
+    const init2 = (p2.name[0]||'M')+(p2.name.split(' ')[1]?.[0]||'D');
     const equity = this.getTotalEquity();
     const income = this.getTotalIncome();
     const expenses = this.getTotalExpenses();
-    const savingsRate = income > 0 ? Math.round((income-expenses)/income*100) : 0;
+    const savingsRate = income>0 ? Math.round((income-expenses)/income*100) : 0;
     const cashFlow = this.getTotalCashFlow();
     const freeCash = this.getFreeCash();
-
-    // Nearest goal not complete
-    const nextGoal = this.state.goals.filter(g=>!g.completed).sort((a,b)=>parseNum(b.saved)/parseNum(b.target)-parseNum(a.saved)/parseNum(a.target))[0];
+    const sideHustle = this.getThisMonthSideHustle();
+    const nextGoal = this.state.goals.filter(g=>!g.completed&&g.goal_type!=='lifestyle').sort((a,b)=>parseNum(b.saved)/parseNum(b.target)-parseNum(a.saved)/parseNum(a.target))[0];
 
     document.getElementById('dash-content').innerHTML = `
       <div class="dash-hd">
@@ -122,7 +138,7 @@ window.App = {
             <div class="dh-greeting">Good ${this.timeOfDay()},</div>
             <div class="dh-names">${n1} & ${n2} 👋</div>
           </div>
-          <div style="display:flex;gap:-6px">
+          <div style="display:flex">
             <div class="avatar">${init1}</div>
             <div class="avatar" style="margin-left:-8px">${init2}</div>
           </div>
@@ -132,107 +148,216 @@ window.App = {
         <div class="badge-row">
           <span class="badge"><i class="ti ti-trending-up" style="font-size:11px"></i> +${fmt(cashFlow)}/mo cash flow</span>
           <span class="badge">${this.state.properties.length} ${this.state.properties.length===1?'property':'properties'}</span>
+          ${sideHustle>0?`<span class="badge"><i class="ti ti-bolt" style="font-size:11px"></i> +${fmt(sideHustle)} side hustle</span>`:''}
         </div>
       </div>
-
       <div class="sec" style="margin-top:14px">
         <div class="sec-hd"><span class="sec-title">Monthly snapshot</span></div>
         <div class="cards2">
-          <div class="mcard"><div class="lbl">Combined income</div><div class="val">${fmt(income)}</div><div class="hint">incl. ${fmt(parseNum(this.state.rentalIncome))} rental</div></div>
+          <div class="mcard"><div class="lbl">Total income</div><div class="val">${fmt(income)}</div><div class="hint">salary + rental${sideHustle>0?' + hustle':''}</div></div>
           <div class="mcard"><div class="lbl">This month exp.</div><div class="val">${fmt(expenses)}</div><div class="hint">tracked expenses</div></div>
           <div class="mcard"><div class="lbl">Savings rate</div><div class="val">${savingsRate}%</div><div class="hint">${fmt(freeCash)} free/mo</div></div>
-          <div class="mcard"><div class="lbl">Next target</div><div class="val">${nextGoal?fmt(parseNum(nextGoal.target)-parseNum(nextGoal.saved)):'—'}</div><div class="hint">${nextGoal?nextGoal.title:'No goals set'}</div></div>
+          <div class="mcard"><div class="lbl">Total saved</div><div class="val">${fmt(this.getTotalSaved())}</div><div class="hint">across all goals</div></div>
         </div>
       </div>
-
       <div class="sec" style="margin-top:14px">
         <div class="sec-hd"><span class="sec-title">Properties</span><button class="sec-action" onclick="App.switchPage('props')">View all</button></div>
         ${this.state.properties.length===0?`<div class="empty-state"><i class="ti ti-building"></i><div>No properties yet</div><button class="btn-sm" style="margin-top:10px" onclick="App.switchPage('props')"><i class="ti ti-plus"></i> Add first property</button></div>`:''}
         ${this.state.properties.slice(0,3).map(p=>{
-          const cf = parseNum(p.rent_income)-parseNum(p.mortgage)-parseNum(p.insurance_tax);
+          const cf=parseNum(p.rent_income)-parseNum(p.mortgage)-parseNum(p.insurance_tax);
           return `<div class="prop-card" onclick="App.switchPage('props')">
-            <div class="prop-ico"><i class="ti ${p.name.toLowerCase().includes('condo')||p.name.toLowerCase().includes('apartment')?'ti-building':'ti-home'}"></i></div>
+            <div class="prop-ico"><i class="ti ${p.name.toLowerCase().includes('condo')||p.name.toLowerCase().includes('apt')?'ti-building':'ti-home'}"></i></div>
             <div style="flex:1;min-width:0"><div class="pname">${p.name}</div><div class="paddr">${p.address||'No address'} — ${p.status||'Rented'}</div></div>
             <div><div class="prent">${fmt(p.rent_income)}/mo</div><div class="pcf">${cf>=0?'+':''}${fmt(cf)} cf</div></div>
           </div>`;
         }).join('')}
       </div>
-
       <div class="sec" style="margin-top:14px;padding-bottom:20px">
         <div class="sec-hd"><span class="sec-title">Goals at a glance</span><button class="sec-action" onclick="App.switchPage('goals')">View all</button></div>
         ${this.state.goals.length===0?`<div class="empty-state"><i class="ti ti-target"></i><div>No goals set yet</div><button class="btn-sm" style="margin-top:10px" onclick="App.switchPage('goals')"><i class="ti ti-plus"></i> Add goal</button></div>`:''}
-        ${this.state.goals.slice(0,3).map(g=>{
-          const pct = Math.min(100, Math.round(parseNum(g.saved)/parseNum(g.target)*100));
-          const done = pct>=100||g.completed;
-          return `<div class="goal-card${done?' done':''}">
+        ${this.state.goals.slice(0,4).map(g=>{
+          const isLife = g.goal_type==='lifestyle';
+          const cur = isLife ? parseNum(g.lifestyle_balance) : parseNum(g.saved);
+          const cap = isLife ? parseNum(g.lifestyle_cap) : parseNum(g.target);
+          const pct = cap>0 ? Math.min(100,Math.round(cur/cap*100)) : 0;
+          const done = !isLife && (pct>=100||g.completed);
+          return `<div class="goal-card${done?' done':''}${isLife?' lifestyle-card':''}">
             <div class="g-hd">
-              <div class="g-ico${done?' done-ico':''}"><i class="ti ${g.icon||'ti-target'}"></i></div>
-              <div><div class="g-title">${g.title}${done?`<span class="done-badge"><i class="ti ti-check" style="font-size:10px"></i> Reached!</span>`:''}</div><div class="g-sub">${fmt(g.saved)} of ${fmt(g.target)}</div></div>
+              <div class="g-ico${done?' done-ico':''}${isLife?' lifestyle-ico':''}"><i class="ti ${g.icon||'ti-target'}"></i></div>
+              <div><div class="g-title">${g.title}${isLife?'<span class="lifestyle-badge">Lifestyle</span>':''}${done?`<span class="done-badge"><i class="ti ti-check" style="font-size:10px"></i> Reached!</span>`:''}</div>
+              <div class="g-sub">${fmt(cur)}${isLife?' available':' of '+fmt(cap)}</div></div>
             </div>
-            <div class="bar-bg"><div class="bar-fill" style="width:0%" data-pct="${pct}"></div></div>
-            ${!done?`<div class="g-foot"><span>${fmt(g.monthly_allocation)}/mo</span><span class="g-pct">${pct}%</span></div>`:''}
+            <div class="bar-bg"><div class="bar-fill${isLife?' lifestyle-fill':''}" data-pct="${pct}" style="width:0%"></div></div>
+            ${!done?`<div class="g-foot"><span>${isLife?'Cap: '+fmt(cap):fmt(g.monthly_allocation)+'/mo'}</span><span class="g-pct">${pct}%</span></div>`:''}
           </div>`;
         }).join('')}
       </div>`;
     setTimeout(()=>this.animateBars(),300);
   },
 
-  // ── SALARY ────────────────────────────────────────────────────────────────
+  // ── SALARY / INCOME ───────────────────────────────────────────────────────
   renderSalary() {
-    const p1 = this.state.profiles[0]||{name:'Jovannie Ducay',monthly_salary:0,pay_frequency:'Monthly',bonus:0};
-    const p2 = this.state.profiles[1]||{name:'Melody Ducay',monthly_salary:0,pay_frequency:'Monthly',bonus:0};
+    const p1 = this.state.profiles[0]||{name:'Jovannie Ducay',monthly_salary:0,pay_frequency:'Monthly',bonus:0,salary_day:1,opening_balance:0};
+    const p2 = this.state.profiles[1]||{name:'Melody Ducay',monthly_salary:0,pay_frequency:'Monthly',bonus:0,salary_day:1,opening_balance:0};
     const rental = parseNum(this.state.rentalIncome);
-    const total = parseNum(p1.monthly_salary)+parseNum(p1.bonus)+parseNum(p2.monthly_salary)+parseNum(p2.bonus)+rental;
+    const now = new Date();
+    const monthEntries = this.state.incomeEntries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
+    const totalThisMonth = parseNum(p1.monthly_salary)+parseNum(p1.bonus)+parseNum(p2.monthly_salary)+parseNum(p2.bonus)+rental+monthEntries.reduce((s,e)=>s+parseNum(e.amount),0);
+
     document.getElementById('salary-content').innerHTML = `
-      <div class="form-wrap">
-        <h3>Income setup</h3>
-        <div style="background:var(--faint);border-radius:12px;padding:10px 14px;margin-bottom:6px;font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center">
-          <i class="ti ti-info-circle" style="font-size:16px;flex-shrink:0"></i>
-          Both profiles auto-sync to dashboard in real-time
+      <div class="inner-tabs">
+        <button class="inner-tab active" onclick="App.showIncomeTab('jovannie',this)">Jovannie</button>
+        <button class="inner-tab" onclick="App.showIncomeTab('melody',this)">Melody</button>
+        <button class="inner-tab" onclick="App.showIncomeTab('rental',this)">Rental</button>
+        <button class="inner-tab" onclick="App.showIncomeTab('sidehustle',this)">Side hustle</button>
+      </div>
+
+      <!-- Jovannie tab -->
+      <div class="tab-pane active" id="inc-jovannie">
+        <div class="form-wrap">
+          <div style="background:var(--faint);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:var(--muted)"><i class="ti ti-user" style="font-size:15px;vertical-align:-2px;margin-right:6px;color:var(--accent)"></i><strong>${p1.name}</strong></div>
+          <div class="field"><label>Monthly salary (after tax)</label><input type="number" id="sal-p1" value="${parseNum(p1.monthly_salary)||''}" placeholder="0"></div>
+          <div class="field"><label>Pay frequency</label><select id="freq-p1">${['Monthly','Bi-weekly','Weekly'].map(f=>`<option${p1.pay_frequency===f?' selected':''}>${f}</option>`).join('')}</select></div>
+          <div class="field"><label>Salary pay day (day of month)</label><input type="number" id="day-p1" value="${p1.salary_day||1}" min="1" max="31" placeholder="1"></div>
+          <div class="field"><label>Bonus / extra (avg/mo)</label><input type="number" id="bon-p1" value="${parseNum(p1.bonus)||''}" placeholder="0"></div>
+          <div class="divider"></div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px">Current savings</div>
+          <div class="field"><label>Opening balance (total savings right now)</label><input type="number" id="bal-p1" value="${parseNum(p1.opening_balance)||''}" placeholder="0"></div>
+          <div class="field"><label>Balance as of date</label><input type="date" id="baldate-p1" value="${p1.savings_as_of||new Date().toISOString().split('T')[0]}"></div>
+          <button class="btn-primary" onclick="App.saveProfile(0)"><i class="ti ti-device-floppy"></i> Save Jovannie's income</button>
         </div>
-        <div class="person-hd"><i class="ti ti-user" style="font-size:16px"></i>${p1.name}</div>
-        <div class="field"><label>Monthly salary (after tax)</label><input type="number" id="sal-p1" value="${parseNum(p1.monthly_salary)}" placeholder="0" onchange="App.updateSalaryTotal()"></div>
-        <div class="field"><label>Pay frequency</label><select id="freq-p1">${['Monthly','Bi-weekly','Weekly'].map(f=>`<option${p1.pay_frequency===f?' selected':''}>${f}</option>`).join('')}</select></div>
-        <div class="field"><label>Bonus / extra income (avg/mo)</label><input type="number" id="bon-p1" value="${parseNum(p1.bonus)}" placeholder="0" onchange="App.updateSalaryTotal()"></div>
-        <div class="divider"></div>
-        <div class="person-hd"><i class="ti ti-user" style="font-size:16px"></i>${p2.name}</div>
-        <div class="field"><label>Monthly salary (after tax)</label><input type="number" id="sal-p2" value="${parseNum(p2.monthly_salary)}" placeholder="0" onchange="App.updateSalaryTotal()"></div>
-        <div class="field"><label>Pay frequency</label><select id="freq-p2">${['Monthly','Bi-weekly','Weekly'].map(f=>`<option${p2.pay_frequency===f?' selected':''}>${f}</option>`).join('')}</select></div>
-        <div class="field"><label>Bonus / extra income (avg/mo)</label><input type="number" id="bon-p2" value="${parseNum(p2.bonus)}" placeholder="0" onchange="App.updateSalaryTotal()"></div>
-        <div class="divider"></div>
-        <div class="person-hd"><i class="ti ti-building" style="font-size:16px"></i>Rental income</div>
-        <div class="field"><label>Total monthly rent received</label><input type="number" id="rental-total" value="${rental}" placeholder="0" onchange="App.updateSalaryTotal()"></div>
+      </div>
+
+      <!-- Melody tab -->
+      <div class="tab-pane" id="inc-melody">
+        <div class="form-wrap">
+          <div style="background:var(--faint);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:var(--muted)"><i class="ti ti-user" style="font-size:15px;vertical-align:-2px;margin-right:6px;color:var(--accent)"></i><strong>${p2.name}</strong></div>
+          <div class="field"><label>Monthly salary (after tax)</label><input type="number" id="sal-p2" value="${parseNum(p2.monthly_salary)||''}" placeholder="0"></div>
+          <div class="field"><label>Pay frequency</label><select id="freq-p2">${['Monthly','Bi-weekly','Weekly'].map(f=>`<option${p2.pay_frequency===f?' selected':''}>${f}</option>`).join('')}</select></div>
+          <div class="field"><label>Salary pay day (day of month)</label><input type="number" id="day-p2" value="${p2.salary_day||1}" min="1" max="31" placeholder="1"></div>
+          <div class="field"><label>Bonus / extra (avg/mo)</label><input type="number" id="bon-p2" value="${parseNum(p2.bonus)||''}" placeholder="0"></div>
+          <div class="divider"></div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px">Current savings</div>
+          <div class="field"><label>Opening balance (total savings right now)</label><input type="number" id="bal-p2" value="${parseNum(p2.opening_balance)||''}" placeholder="0"></div>
+          <div class="field"><label>Balance as of date</label><input type="date" id="baldate-p2" value="${p2.savings_as_of||new Date().toISOString().split('T')[0]}"></div>
+          <button class="btn-primary" onclick="App.saveProfile(1)"><i class="ti ti-device-floppy"></i> Save Melody's income</button>
+        </div>
+      </div>
+
+      <!-- Rental tab -->
+      <div class="tab-pane" id="inc-rental">
+        <div class="form-wrap">
+          <div class="field"><label>Total monthly rent received</label><input type="number" id="rental-total" value="${rental||''}" placeholder="0"></div>
+          <div style="background:var(--faint);border-radius:12px;padding:10px 14px;margin:4px 0 12px;font-size:13px;color:var(--muted)">
+            <i class="ti ti-info-circle" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>
+            This is total rent across all properties. Individual property income is tracked in the Properties tab.
+          </div>
+          <button class="btn-primary" onclick="App.saveRental()"><i class="ti ti-device-floppy"></i> Save rental income</button>
+        </div>
+      </div>
+
+      <!-- Side hustle tab -->
+      <div class="tab-pane" id="inc-sidehustle">
+        <div class="form-wrap">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+            <div style="font-size:15px;font-weight:800">Side hustle log</div>
+            <button class="btn-sm" onclick="App.openAddIncome()"><i class="ti ti-plus" style="font-size:13px"></i> Add</button>
+          </div>
+          <div style="background:var(--accent-light);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:13px;color:var(--accent-dark);font-weight:700">This month total</span>
+            <span style="font-size:18px;font-weight:800;color:var(--accent-dark)">${fmt(this.getThisMonthSideHustle())}</span>
+          </div>
+          ${this.state.incomeEntries.length===0?`<div class="empty-state"><i class="ti ti-bolt"></i><div>No side hustle entries yet</div></div>`:''}
+          ${this.state.incomeEntries.map(e=>`
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+              <div style="width:36px;height:36px;border-radius:10px;background:var(--accent-light);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-bolt" style="font-size:16px;color:var(--accent)"></i></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:14px;font-weight:600">${e.description}</div>
+                <div style="font-size:11px;color:var(--muted)">${new Date(e.date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}${e.is_recurring?` · <span style="color:var(--accent)">↻ ${e.recurrence}</span>`:''}</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:14px;font-weight:800;color:var(--accent)">${fmt(e.amount)}</div>
+                <button onclick="App.deleteIncome('${e.id}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:0"><i class="ti ti-trash"></i></button>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <div style="padding:14px 18px 20px;border-top:1px solid var(--border);margin-top:8px">
         <div class="total-box">
-          <span class="tl">Total household income</span>
-          <span class="ta" id="salary-total">${fmt(total)}</span>
+          <span class="tl">Total household income/mo</span>
+          <span class="ta">${fmt(totalThisMonth)}</span>
         </div>
-        <button class="btn-primary" onclick="App.saveSalary()"><i class="ti ti-device-floppy"></i> Save income</button>
       </div>`;
   },
 
-  updateSalaryTotal() {
-    const v = (id)=>parseNum(document.getElementById(id)?.value||0);
-    const total = v('sal-p1')+v('bon-p1')+v('sal-p2')+v('bon-p2')+v('rental-total');
-    const el = document.getElementById('salary-total');
-    if (el) el.textContent = fmt(total);
+  showIncomeTab(id, btn) {
+    document.querySelectorAll('#page-salary .tab-pane').forEach(p=>p.classList.remove('active'));
+    document.querySelectorAll('#page-salary .inner-tab').forEach(b=>b.classList.remove('active'));
+    document.getElementById('inc-'+id).classList.add('active');
+    btn.classList.add('active');
   },
 
-  async saveSalary() {
-    const btn = document.querySelector('#page-salary .btn-primary');
-    if (btn) { btn.classList.add('loading'); btn.innerHTML='<span class="spinner"></span> Saving...'; }
-    const p1 = this.state.profiles[0], p2 = this.state.profiles[1];
-    const d1 = { monthly_salary:parseNum(document.getElementById('sal-p1').value), pay_frequency:document.getElementById('freq-p1').value, bonus:parseNum(document.getElementById('bon-p1').value) };
-    const d2 = { monthly_salary:parseNum(document.getElementById('sal-p2').value), pay_frequency:document.getElementById('freq-p2').value, bonus:parseNum(document.getElementById('bon-p2').value) };
-    const rentalVal = parseNum(document.getElementById('rental-total').value);
-    if (p1?.id) { await DB.update('profiles', p1.id, d1); Object.assign(this.state.profiles[0], d1); }
-    if (p2?.id) { await DB.update('profiles', p2.id, d2); Object.assign(this.state.profiles[1], d2); }
-    this.state.rentalIncome = rentalVal;
-    const rentalRow = (DB.local.get('rental_income')||[])[0];
-    if (rentalRow?.id) await DB.update('rental_income', rentalRow.id, {total_monthly:rentalVal});
-    else await DB.insert('rental_income', {total_monthly:rentalVal});
+  async saveProfile(idx) {
+    const p = this.state.profiles[idx];
+    if (!p?.id) { this.showToast('Profile not found','error'); return; }
+    const sfx = idx===0?'p1':'p2';
+    const data = {
+      monthly_salary: parseNum(document.getElementById(`sal-${sfx}`).value),
+      pay_frequency: document.getElementById(`freq-${sfx}`).value,
+      salary_day: parseInt(document.getElementById(`day-${sfx}`).value)||1,
+      bonus: parseNum(document.getElementById(`bon-${sfx}`).value),
+      opening_balance: parseNum(document.getElementById(`bal-${sfx}`).value),
+      savings_as_of: document.getElementById(`baldate-${sfx}`).value,
+    };
+    await DB.update('profiles', p.id, data);
+    Object.assign(this.state.profiles[idx], data);
     this.renderDashboard();
-    if (btn) { btn.classList.remove('loading'); btn.innerHTML='<i class="ti ti-check"></i> Saved!'; setTimeout(()=>btn.innerHTML='<i class="ti ti-device-floppy"></i> Save income',2000); }
-    this.showToast('Income saved!', 'success');
+    this.showToast(`${p.name.split(' ')[0]}'s income saved!`, 'success');
+  },
+
+  async saveRental() {
+    const val = parseNum(document.getElementById('rental-total').value);
+    this.state.rentalIncome = val;
+    const rentalRow = (DB.local.get('rental_income')||[])[0];
+    if (rentalRow?.id) await DB.update('rental_income', rentalRow.id, {total_monthly:val});
+    else await DB.insert('rental_income', {total_monthly:val});
+    this.renderDashboard();
+    this.showToast('Rental income saved!', 'success');
+  },
+
+  openAddIncome() {
+    this.state.editingIncomeId = null;
+    document.getElementById('income-desc').value='';
+    document.getElementById('income-amount').value='';
+    document.getElementById('income-date').value=new Date().toISOString().split('T')[0];
+    document.getElementById('income-recurring').checked=false;
+    document.getElementById('income-recurrence-row').style.display='none';
+    this.openSheet('incomeSheet');
+  },
+
+  async saveIncome() {
+    const desc = document.getElementById('income-desc').value.trim();
+    const amount = parseNum(document.getElementById('income-amount').value);
+    const date = document.getElementById('income-date').value;
+    const isRecurring = document.getElementById('income-recurring').checked;
+    const recurrence = isRecurring ? document.getElementById('income-recurrence').value : null;
+    if (!desc||!amount) { this.showToast('Enter description & amount','error'); return; }
+    const p1 = this.state.profiles[0];
+    const entry = await DB.insert('income_entries',{ profile_id:p1?.id||null, description:desc, amount, date, is_recurring:isRecurring, recurrence });
+    this.state.incomeEntries.unshift(entry);
+    this.closeSheet('incomeSheet');
+    this.renderSalary();
+    this.renderDashboard();
+    this.showToast('Income logged!','success');
+  },
+
+  async deleteIncome(id) {
+    this.state.incomeEntries = this.state.incomeEntries.filter(e=>e.id!==id);
+    await DB.delete('income_entries', id);
+    this.renderSalary();
+    this.renderDashboard();
+    this.showToast('Entry deleted');
   },
 
   // ── EXPENSES ──────────────────────────────────────────────────────────────
@@ -241,7 +366,9 @@ window.App = {
     const monthExp = this.state.expenses.filter(e=>{ const d=new Date(e.date||e.created_at); return d.getMonth()===m&&d.getFullYear()===y; });
     const filtered = this.state.activeExp==='All' ? monthExp : monthExp.filter(e=>e.category===this.state.activeExp);
     const total = monthExp.reduce((s,e)=>s+parseNum(e.amount),0);
+    const recurring = monthExp.filter(e=>e.is_recurring);
     const cats = ['All',...new Set(monthExp.map(e=>e.category))];
+
     document.getElementById('expenses-content').innerHTML = `
       <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="App.handleDrop(event)">
         <i class="ti ti-camera-plus"></i>
@@ -249,6 +376,13 @@ window.App = {
         <small>AI scans & suggests category automatically</small>
         <input type="file" id="file-input" accept="image/*" capture="environment" style="display:none" onchange="App.handleFileSelect(event)">
       </div>
+      ${recurring.length>0?`
+      <div style="padding:0 18px 10px">
+        <div style="background:#FAEEDA;border-radius:12px;padding:10px 14px;font-size:13px;color:#854F0B;display:flex;justify-content:space-between;align-items:center">
+          <span><i class="ti ti-refresh" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i> <strong>${recurring.length} recurring</strong> · ${fmt(recurring.reduce((s,e)=>s+parseNum(e.amount),0))}/mo</span>
+          <button onclick="App.toggleRecurringView()" style="background:none;border:none;font-size:12px;color:#854F0B;cursor:pointer;font-weight:700">View</button>
+        </div>
+      </div>`:``}
       <div class="exp-hd">
         <span>${now.toLocaleString('default',{month:'long'})} ${y}</span>
         <span style="color:var(--danger)">${fmt(total)} total</span>
@@ -257,21 +391,22 @@ window.App = {
         ${cats.map(c=>`<button class="filter-pill${this.state.activeExp===c?' active':''}" onclick="App.filterExp('${c}')">${c}</button>`).join('')}
       </div>
       ${filtered.length===0?`<div class="empty-state"><i class="ti ti-receipt"></i><div>No expenses yet this month</div></div>`:''}
-      <div id="exp-list">
-        ${filtered.map(e=>this.expItemHTML(e)).join('')}
-      </div>
+      <div id="exp-list">${filtered.map(e=>this.expItemHTML(e)).join('')}</div>
       <div style="padding:14px 18px">
         <button class="add-card-btn" onclick="App.openAddExpense()"><i class="ti ti-plus" style="font-size:18px"></i> Add expense manually</button>
       </div>`;
   },
 
   expItemHTML(e) {
-    const bg = CAT_COLORS[e.category]||'#f1efe8';
-    const ico = CAT_ICONS[e.category]||'ti-dots';
-    const col = CAT_TEXT[e.category]||'#6b6b6b';
+    const bg=CAT_COLORS[e.category]||'#f1efe8';
+    const ico=CAT_ICONS[e.category]||'ti-dots';
+    const col=CAT_TEXT[e.category]||'#6b6b6b';
     return `<div class="exp-item" id="exp-${e.id}">
       <div class="exp-cat-ico" style="background:${bg}"><i class="ti ${ico}" style="color:${col}"></i></div>
-      <div style="flex:1;min-width:0"><div class="exp-name">${e.name}</div><div class="exp-catname">${e.category} · ${new Date(e.date||e.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}${e.receipt_url?` · <span style="color:var(--accent)">📎 receipt</span>`:''}</div></div>
+      <div style="flex:1;min-width:0">
+        <div class="exp-name">${e.name}${e.is_recurring?` <span style="font-size:10px;background:#FAEEDA;color:#854F0B;padding:2px 6px;border-radius:10px;font-weight:700">↻ ${e.recurrence||'recurring'}</span>`:''}</div>
+        <div class="exp-catname">${e.category} · ${new Date(e.date||e.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}${e.receipt_url?` · <span style="color:var(--accent)">📎</span>`:''}</div>
+      </div>
       <div style="display:flex;align-items:center;gap:8px">
         <div class="exp-amt">${fmt(e.amount)}</div>
         <button onclick="App.deleteExpense('${e.id}')" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;padding:0"><i class="ti ti-trash"></i></button>
@@ -279,238 +414,302 @@ window.App = {
     </div>`;
   },
 
-  filterExp(cat) {
-    this.state.activeExp = cat;
-    this.renderExpenses();
-  },
-
-  handleDrop(e) {
-    e.preventDefault();
-    document.getElementById('upload-zone').classList.remove('drag');
-    const file = e.dataTransfer.files[0];
-    if (file && file.type.startsWith('image/')) this.processScanFile(file);
-  },
-
-  handleFileSelect(e) {
-    const file = e.target.files[0];
-    if (file) this.processScanFile(file);
-  },
+  filterExp(cat) { this.state.activeExp=cat; this.renderExpenses(); },
+  handleDrop(e) { e.preventDefault(); document.getElementById('upload-zone').classList.remove('drag'); const f=e.dataTransfer.files[0]; if(f&&f.type.startsWith('image/')) this.processScanFile(f); },
+  handleFileSelect(e) { const f=e.target.files[0]; if(f) this.processScanFile(f); },
 
   processScanFile(file) {
-    this.state.scanFile = file;
-    // Show scan modal with preview
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      document.getElementById('scan-preview').src = ev.target.result;
-      document.getElementById('scan-preview').style.display = 'block';
-    };
+    this.state.scanFile=file;
+    const reader=new FileReader();
+    reader.onload=(ev)=>{ const img=document.getElementById('scan-preview'); img.src=ev.target.result; img.style.display='block'; };
     reader.readAsDataURL(file);
-    this.state.scanCatSel = null;
+    this.state.scanCatSel=null;
     document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('sel'));
-    this.openSheet('scanSheet');
+    this.openAddExpense();
   },
 
-  openAddExpense(prefill={}) {
-    this.state.scanFile = null;
-    document.getElementById('scan-preview').style.display='none';
-    document.getElementById('scan-name').value = prefill.name||'';
-    document.getElementById('scan-amount').value = prefill.amount||'';
-    document.getElementById('scan-date').value = prefill.date||new Date().toISOString().split('T')[0];
-    if (prefill.category) this.selectCat(prefill.category);
+  openAddExpense() {
+    if (!this.state.scanFile) {
+      document.getElementById('scan-preview').style.display='none';
+      document.getElementById('scan-name').value='';
+      document.getElementById('scan-amount').value='';
+    }
+    document.getElementById('scan-date').value=new Date().toISOString().split('T')[0];
+    document.getElementById('exp-recurring-cb').checked=false;
+    document.getElementById('exp-recurrence-row').style.display='none';
     this.openSheet('scanSheet');
   },
 
   selectCat(cat) {
-    this.state.scanCatSel = cat;
-    document.querySelectorAll('.cat-btn').forEach(b=>{
-      b.classList.toggle('sel', b.dataset.cat===cat);
-    });
+    this.state.scanCatSel=cat;
+    document.querySelectorAll('.cat-btn').forEach(b=>b.classList.toggle('sel',b.dataset.cat===cat));
   },
 
   async confirmExpense() {
-    const name = document.getElementById('scan-name').value.trim();
-    const amount = parseNum(document.getElementById('scan-amount').value);
-    const date = document.getElementById('scan-date').value;
-    const cat = this.state.scanCatSel || 'Other';
-    if (!name || !amount) { this.showToast('Enter name & amount', 'error'); return; }
-    const btn = document.getElementById('confirm-expense-btn');
+    const name=document.getElementById('scan-name').value.trim();
+    const amount=parseNum(document.getElementById('scan-amount').value);
+    const date=document.getElementById('scan-date').value;
+    const cat=this.state.scanCatSel||'Other';
+    const isRecurring=document.getElementById('exp-recurring-cb').checked;
+    const recurrence=isRecurring?document.getElementById('exp-recurrence').value:null;
+    if (!name||!amount) { this.showToast('Enter name & amount','error'); return; }
+    const btn=document.getElementById('confirm-expense-btn');
     btn.classList.add('loading'); btn.innerHTML='<span class="spinner"></span>';
-
-    let receiptUrl = null;
-    if (this.state.scanFile) {
-      receiptUrl = await this.uploadReceipt(this.state.scanFile).catch(()=>null);
-    }
-    const exp = await DB.insert('expenses', { name, amount, category:cat, date, receipt_url:receiptUrl });
+    let receiptUrl=null;
+    if (this.state.scanFile) receiptUrl=await this.uploadReceipt(this.state.scanFile).catch(()=>null);
+    const exp=await DB.insert('expenses',{name,amount,category:cat,date,receipt_url:receiptUrl,is_recurring:isRecurring,recurrence});
     this.state.expenses.unshift(exp);
+    this.state.scanFile=null;
     this.closeSheet('scanSheet');
     this.renderExpenses();
     this.renderDashboard();
-    this.showToast('Expense added!', 'success');
+    this.showToast('Expense added!','success');
     btn.classList.remove('loading'); btn.innerHTML='<i class="ti ti-check"></i> Save expense';
   },
 
   async uploadReceipt(file) {
-    // Upload to Supabase storage
-    const ext = file.name.split('.').pop();
-    const path = `receipts/${Date.now()}.${ext}`;
-    const res = await fetch(`${DB.SUPABASE_URL}/storage/v1/object/receipts/${path}`, {
-      method:'POST', headers:{ 'apikey':DB.SUPABASE_KEY, 'Authorization':`Bearer ${DB.SUPABASE_KEY}`, 'Content-Type':file.type },
-      body: file
-    });
+    const ext=file.name.split('.').pop()||'jpg';
+    const path=`receipts/${Date.now()}.${ext}`;
+    const res=await fetch(`${DB.SUPABASE_URL}/storage/v1/object/receipts/${path}`,{method:'POST',headers:{'apikey':DB.SUPABASE_KEY,'Authorization':`Bearer ${DB.SUPABASE_KEY}`,'Content-Type':file.type},body:file});
     if (res.ok) return `${DB.SUPABASE_URL}/storage/v1/object/public/receipts/${path}`;
     return null;
   },
 
   async deleteExpense(id) {
     if (!confirm('Delete this expense?')) return;
-    this.state.expenses = this.state.expenses.filter(e=>e.id!==id);
-    await DB.delete('expenses', id);
-    this.renderExpenses();
-    this.renderDashboard();
+    this.state.expenses=this.state.expenses.filter(e=>e.id!==id);
+    await DB.delete('expenses',id);
+    this.renderExpenses(); this.renderDashboard();
     this.showToast('Expense deleted');
   },
 
   // ── GOALS ─────────────────────────────────────────────────────────────────
   renderGoals() {
-    const allocated = this.getGoalsAllocated();
-    const free = this.getTotalIncome() - allocated;
+    const allocated=this.getGoalsAllocated();
+    const income=this.getTotalIncome();
+    const free=income-allocated;
+
     document.getElementById('goals-content').innerHTML = `
       <div style="padding:18px">
         <div class="section-hd-row">
           <span>Financial goals</span>
           <button class="btn-sm" onclick="App.openAddGoal()"><i class="ti ti-plus" style="font-size:13px"></i> Add goal</button>
         </div>
-        ${this.state.goals.length===0?`<div class="empty-state"><i class="ti ti-target"></i><div>No goals yet — add your first one!</div></div>`:''}
-        <div id="goals-list">
+        <div style="background:var(--faint);border-radius:12px;padding:9px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px">
+          <i class="ti ti-grip-vertical" style="font-size:14px"></i> Hold and drag goals to reorder them
+        </div>
+        ${this.state.goals.length===0?`<div class="empty-state"><i class="ti ti-target"></i><div>No goals yet — add your first!</div></div>`:''}
+        <div id="goals-list" ondragover="App.onDragOver(event)" ondrop="App.onDrop(event)">
           ${this.state.goals.map(g=>this.goalCardHTML(g)).join('')}
         </div>
         <div style="background:var(--faint);border-radius:14px;padding:14px;border:1px solid var(--border);margin-top:8px">
           <div style="font-size:12px;font-weight:800;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.6px">Monthly allocation</div>
-          <div class="summary-row"><span class="sr-lbl">Allocated to goals</span><span class="sr-val">${fmt(allocated)}/mo</span></div>
-          <div class="summary-row"><span class="sr-lbl">Total income</span><span class="sr-val">${fmt(this.getTotalIncome())}/mo</span></div>
-          <div class="summary-row"><span class="sr-lbl">Remaining free cash</span><span class="sr-val" style="color:${free>=0?'var(--accent)':'var(--danger)'}">${fmt(free)}/mo</span></div>
+          <div class="summary-row"><span class="sr-lbl">Salary + rental income</span><span class="sr-val">${fmt(this.getTotalSalary()+parseNum(this.state.rentalIncome))}/mo</span></div>
+          <div class="summary-row"><span class="sr-lbl">Side hustle (this month)</span><span class="sr-val">${fmt(this.getThisMonthSideHustle())}</span></div>
+          <div class="summary-row"><span class="sr-lbl">Expenses this month</span><span class="sr-val" style="color:var(--danger)">−${fmt(this.getTotalExpenses())}</span></div>
+          <div class="summary-row"><span class="sr-lbl">Allocated to goals</span><span class="sr-val">−${fmt(allocated)}/mo</span></div>
+          <div class="summary-row" style="border-top:1.5px solid var(--border2);padding-top:8px;margin-top:4px"><span class="sr-lbl" style="font-weight:800;color:var(--text)">Free cash</span><span class="sr-val" style="font-size:16px;color:${free>=0?'var(--accent)':'var(--danger)'}">${fmt(free)}/mo</span></div>
         </div>
       </div>`;
-    setTimeout(()=>this.animateBars(),300);
+    setTimeout(()=>{ this.animateBars(); this.checkConfetti(); },300);
   },
 
   goalCardHTML(g) {
-    const pct = Math.min(100, Math.round(parseNum(g.saved)/parseNum(g.target)*100));
-    const done = pct>=100||g.completed;
-    const remaining = Math.max(0, parseNum(g.target)-parseNum(g.saved));
-    const months = parseNum(g.monthly_allocation)>0 ? Math.ceil(remaining/parseNum(g.monthly_allocation)) : null;
-    return `<div class="goal-card${done?' done':''}" id="gcard-${g.id}">
+    const isLife=g.goal_type==='lifestyle';
+    const cur=isLife?parseNum(g.lifestyle_balance):parseNum(g.saved);
+    const cap=isLife?parseNum(g.lifestyle_cap):parseNum(g.target);
+    const pct=cap>0?Math.min(100,Math.round(cur/cap*100)):0;
+    const done=!isLife&&(pct>=100||g.completed);
+    const remaining=Math.max(0,cap-cur);
+    const months=!isLife&&parseNum(g.monthly_allocation)>0?Math.ceil(remaining/parseNum(g.monthly_allocation)):null;
+
+    return `<div class="goal-card${done?' done':''}${isLife?' lifestyle-card':''}" id="gcard-${g.id}" draggable="true"
+      ondragstart="App.onDragStart(event,'${g.id}')" ondragend="App.onDragEnd(event)">
       <div id="conf-${g.id}"></div>
-      <div class="g-hd">
-        <div class="g-ico${done?' done-ico':''}"><i class="ti ${g.icon||'ti-target'}"></i></div>
-        <div style="flex:1;min-width:0">
-          <div class="g-title">${g.title}${done?`<span class="done-badge"><i class="ti ti-check" style="font-size:10px"></i> Reached!</span>`:''}</div>
-          <div class="g-sub">${fmt(g.saved)} of ${fmt(g.target)}</div>
+      <div style="display:flex;align-items:flex-start;gap:6px">
+        <div style="cursor:grab;color:var(--muted);padding:2px 2px 0 0;font-size:18px"><i class="ti ti-grip-vertical"></i></div>
+        <div style="flex:1">
+          <div class="g-hd">
+            <div class="g-ico${done?' done-ico':''}${isLife?' lifestyle-ico':''}"><i class="ti ${g.icon||'ti-target'}"></i></div>
+            <div style="flex:1;min-width:0">
+              <div class="g-title">${g.title}
+                ${isLife?'<span class="lifestyle-badge">Lifestyle</span>':''}
+                ${done?`<span class="done-badge"><i class="ti ti-check" style="font-size:10px"></i> Reached!</span>`:''}
+              </div>
+              <div class="g-sub">${isLife?`${fmt(cur)} available · cap ${fmt(cap)}`:`${fmt(cur)} of ${fmt(cap)}`}</div>
+            </div>
+          </div>
+          <div class="bar-bg"><div class="bar-fill${isLife?' lifestyle-fill':''}" data-pct="${pct}" style="width:0%"></div></div>
+          <div class="g-foot">
+            <span>${isLife?`Flexible spend fund`:fmt(g.monthly_allocation)+'/mo'+(months?' · ~'+months+' mo left':'')}</span>
+            <span class="g-pct">${pct}%</span>
+          </div>
+          <div class="g-actions">
+            <button class="btn-outline" style="flex:1;justify-content:center;font-size:12px;padding:7px" onclick="App.openEditGoal('${g.id}')"><i class="ti ti-edit" style="font-size:14px"></i> Edit</button>
+            ${isLife
+              ?`<button class="btn-outline" style="font-size:12px;padding:7px 10px" onclick="App.withdrawLifestyle('${g.id}')"><i class="ti ti-arrow-up-left" style="font-size:14px"></i> Withdraw</button>
+                <button class="btn-outline" style="font-size:12px;padding:7px 10px" onclick="App.addToGoal('${g.id}')"><i class="ti ti-plus" style="font-size:14px"></i> Top up</button>`
+              :`<button class="btn-outline" style="font-size:12px;padding:7px 10px" onclick="App.addToGoal('${g.id}')"><i class="ti ti-plus" style="font-size:14px"></i> Add funds</button>`
+            }
+            <button class="btn-outline" style="font-size:12px;padding:7px 10px" onclick="App.deleteGoal('${g.id}')"><i class="ti ti-trash" style="font-size:14px;color:var(--danger)"></i></button>
+          </div>
         </div>
-      </div>
-      <div class="bar-bg"><div class="bar-fill" data-pct="${pct}" style="width:0%"></div></div>
-      <div class="g-foot">
-        <span>${fmt(g.monthly_allocation)}/mo${months?' · ~'+months+' mo left':''}</span>
-        <span class="g-pct">${pct}%</span>
-      </div>
-      <div class="g-actions">
-        <button class="btn-outline" style="flex:1;justify-content:center;font-size:12px;padding:7px" onclick="App.openEditGoal('${g.id}')"><i class="ti ti-edit" style="font-size:14px"></i> Edit</button>
-        <button class="btn-outline" style="font-size:12px;padding:7px 10px" onclick="App.addToGoal('${g.id}')"><i class="ti ti-plus" style="font-size:14px"></i> Add funds</button>
-        <button class="btn-outline" style="font-size:12px;padding:7px 10px" onclick="App.deleteGoal('${g.id}')"><i class="ti ti-trash" style="font-size:14px;color:var(--danger)"></i></button>
       </div>
     </div>`;
   },
 
+  // Drag & drop reorder
+  onDragStart(e, id) { this.state.dragGoalId=id; e.currentTarget.style.opacity='0.5'; },
+  onDragEnd(e) { e.currentTarget.style.opacity='1'; },
+  onDragOver(e) { e.preventDefault(); },
+  onDrop(e) {
+    e.preventDefault();
+    const target=e.target.closest('.goal-card');
+    if (!target||!this.state.dragGoalId) return;
+    const toId=target.id.replace('gcard-','');
+    if (toId===this.state.dragGoalId) return;
+    const goals=this.state.goals;
+    const fromIdx=goals.findIndex(g=>g.id===this.state.dragGoalId);
+    const toIdx=goals.findIndex(g=>g.id===toId);
+    if (fromIdx<0||toIdx<0) return;
+    const [moved]=goals.splice(fromIdx,1);
+    goals.splice(toIdx,0,moved);
+    goals.forEach((g,i)=>{ g.sort_order=i; DB.update('goals',g.id,{sort_order:i}); });
+    this.renderGoals();
+    this.state.dragGoalId=null;
+  },
+
   openAddGoal() {
-    this.state.editingGoalId = null;
-    document.getElementById('goal-sheet-title').textContent = 'New goal';
-    document.getElementById('goal-title-in').value = '';
-    document.getElementById('goal-target-in').value = '';
-    document.getElementById('goal-saved-in').value = '';
-    document.getElementById('goal-alloc-in').value = '';
-    document.getElementById('goal-icon-sel').value = 'ti-target';
+    this.state.editingGoalId=null;
+    document.getElementById('goal-sheet-title').textContent='New goal';
+    document.getElementById('goal-title-in').value='';
+    document.getElementById('goal-target-in').value='';
+    document.getElementById('goal-saved-in').value='';
+    document.getElementById('goal-alloc-in').value='';
+    document.getElementById('goal-icon-sel').value='ti-target';
+    document.getElementById('goal-type-sel').value='savings';
+    this.toggleGoalType('savings');
     this.openSheet('goalSheet');
   },
 
   openEditGoal(id) {
-    const g = this.state.goals.find(x=>x.id===id);
+    const g=this.state.goals.find(x=>x.id===id);
     if (!g) return;
-    this.state.editingGoalId = id;
-    document.getElementById('goal-sheet-title').textContent = 'Edit goal';
-    document.getElementById('goal-title-in').value = g.title;
-    document.getElementById('goal-target-in').value = parseNum(g.target);
-    document.getElementById('goal-saved-in').value = parseNum(g.saved);
-    document.getElementById('goal-alloc-in').value = parseNum(g.monthly_allocation);
-    document.getElementById('goal-icon-sel').value = g.icon||'ti-target';
+    this.state.editingGoalId=id;
+    document.getElementById('goal-sheet-title').textContent='Edit goal';
+    document.getElementById('goal-title-in').value=g.title;
+    document.getElementById('goal-type-sel').value=g.goal_type||'savings';
+    document.getElementById('goal-icon-sel').value=g.icon||'ti-target';
+    this.toggleGoalType(g.goal_type||'savings');
+    if (g.goal_type==='lifestyle') {
+      document.getElementById('goal-cap-in').value=parseNum(g.lifestyle_cap)||'';
+      document.getElementById('goal-balance-in').value=parseNum(g.lifestyle_balance)||'';
+    } else {
+      document.getElementById('goal-target-in').value=parseNum(g.target)||'';
+      document.getElementById('goal-saved-in').value=parseNum(g.saved)||'';
+      document.getElementById('goal-alloc-in').value=parseNum(g.monthly_allocation)||'';
+    }
     this.openSheet('goalSheet');
   },
 
+  toggleGoalType(type) {
+    const isSavings=type==='savings';
+    document.getElementById('goal-savings-fields').style.display=isSavings?'block':'none';
+    document.getElementById('goal-lifestyle-fields').style.display=isSavings?'none':'block';
+  },
+
   async saveGoal() {
-    const title = document.getElementById('goal-title-in').value.trim();
-    const target = parseNum(document.getElementById('goal-target-in').value);
-    const saved = parseNum(document.getElementById('goal-saved-in').value);
-    const alloc = parseNum(document.getElementById('goal-alloc-in').value);
-    const icon = document.getElementById('goal-icon-sel').value;
-    if (!title || !target) { this.showToast('Enter title & target amount', 'error'); return; }
-    const data = { title, target, saved, monthly_allocation:alloc, icon, completed: saved>=target };
-    if (this.state.editingGoalId) {
-      await DB.update('goals', this.state.editingGoalId, data);
-      const idx = this.state.goals.findIndex(g=>g.id===this.state.editingGoalId);
-      if (idx>=0) this.state.goals[idx] = {...this.state.goals[idx],...data};
+    const title=document.getElementById('goal-title-in').value.trim();
+    const type=document.getElementById('goal-type-sel').value;
+    const icon=document.getElementById('goal-icon-sel').value;
+    if (!title) { this.showToast('Enter a goal name','error'); return; }
+    let data={title,icon,goal_type:type};
+    if (type==='lifestyle') {
+      const cap=parseNum(document.getElementById('goal-cap-in').value);
+      if (!cap) { this.showToast('Enter a spending cap','error'); return; }
+      data={...data,lifestyle_cap:cap,lifestyle_balance:parseNum(document.getElementById('goal-balance-in').value),target:cap,saved:0,monthly_allocation:0};
     } else {
-      const g = await DB.insert('goals', data);
-      this.state.goals.unshift(g);
+      const target=parseNum(document.getElementById('goal-target-in').value);
+      if (!target) { this.showToast('Enter a target amount','error'); return; }
+      const saved=parseNum(document.getElementById('goal-saved-in').value);
+      data={...data,target,saved,monthly_allocation:parseNum(document.getElementById('goal-alloc-in').value),completed:saved>=target};
+    }
+    const sortOrder=this.state.editingGoalId?this.state.goals.find(g=>g.id===this.state.editingGoalId)?.sort_order||0:this.state.goals.length;
+    data.sort_order=sortOrder;
+    if (this.state.editingGoalId) {
+      await DB.update('goals',this.state.editingGoalId,data);
+      const idx=this.state.goals.findIndex(g=>g.id===this.state.editingGoalId);
+      if (idx>=0) this.state.goals[idx]={...this.state.goals[idx],...data};
+    } else {
+      const g=await DB.insert('goals',data);
+      this.state.goals.push(g);
     }
     this.closeSheet('goalSheet');
-    this.renderGoals();
-    this.renderDashboard();
+    this.renderGoals(); this.renderDashboard();
     this.showToast(this.state.editingGoalId?'Goal updated!':'Goal created!','success');
   },
 
   async addToGoal(id) {
-    const amt = prompt('How much to add (kr.)?');
-    if (!amt) return;
-    const g = this.state.goals.find(x=>x.id===id);
+    const g=this.state.goals.find(x=>x.id===id);
     if (!g) return;
-    const newSaved = parseNum(g.saved) + parseNum(amt);
-    const completed = newSaved >= parseNum(g.target);
-    await DB.update('goals', id, { saved:newSaved, completed });
-    g.saved = newSaved; g.completed = completed;
-    this.renderGoals();
-    this.renderDashboard();
-    if (completed) { setTimeout(()=>this.launchConfetti(id), 400); this.showToast('🎉 Goal reached!','success'); }
-    else this.showToast(`Added ${fmt(parseNum(amt))} to ${g.title}`, 'success');
+    const amt=prompt(`Add funds to "${g.title}" (kr.):`);
+    if (!amt||parseNum(amt)<=0) return;
+    const isLife=g.goal_type==='lifestyle';
+    if (isLife) {
+      const newBal=Math.min(parseNum(g.lifestyle_cap),parseNum(g.lifestyle_balance)+parseNum(amt));
+      await DB.update('goals',id,{lifestyle_balance:newBal});
+      g.lifestyle_balance=newBal;
+    } else {
+      const newSaved=parseNum(g.saved)+parseNum(amt);
+      const completed=newSaved>=parseNum(g.target);
+      await DB.update('goals',id,{saved:newSaved,completed});
+      g.saved=newSaved; g.completed=completed;
+      if (completed) { setTimeout(()=>this.launchConfetti(id),400); this.showToast('🎉 Goal reached!','success'); return; }
+    }
+    this.renderGoals(); this.renderDashboard();
+    this.showToast(`Added ${fmt(parseNum(amt))} to ${g.title}`,'success');
+  },
+
+  async withdrawLifestyle(id) {
+    const g=this.state.goals.find(x=>x.id===id);
+    if (!g) return;
+    const amt=prompt(`Withdraw from "${g.title}" — available: ${fmt(g.lifestyle_balance)}\nAmount (kr.):`);
+    if (!amt||parseNum(amt)<=0) return;
+    const newBal=Math.max(0,parseNum(g.lifestyle_balance)-parseNum(amt));
+    await DB.update('goals',id,{lifestyle_balance:newBal});
+    g.lifestyle_balance=newBal;
+    this.renderGoals(); this.renderDashboard();
+    this.showToast(`Withdrew ${fmt(parseNum(amt))} from ${g.title}`);
   },
 
   async deleteGoal(id) {
     if (!confirm('Delete this goal?')) return;
-    this.state.goals = this.state.goals.filter(g=>g.id!==id);
-    await DB.delete('goals', id);
-    this.renderGoals();
-    this.renderDashboard();
+    this.state.goals=this.state.goals.filter(g=>g.id!==id);
+    await DB.delete('goals',id);
+    this.renderGoals(); this.renderDashboard();
     this.showToast('Goal deleted');
   },
 
   launchConfetti(id) {
-    const c = document.getElementById('conf-'+id);
-    if (!c) return;
-    const cols = ['#1D9E75','#9FE1CB','#5DCAA5','#fff','#E1F5EE','#0F6E56'];
-    c.innerHTML = '';
+    const c=document.getElementById('conf-'+id); if (!c) return;
+    const cols=['#1D9E75','#9FE1CB','#5DCAA5','#fff','#E1F5EE','#0F6E56'];
+    c.innerHTML='';
     for (let i=0;i<24;i++) {
-      const d = document.createElement('div');
-      d.className = 'conf';
-      const x = (Math.random()*160-80)+'px';
-      d.style.cssText = `left:${Math.random()*100}%;top:${50+Math.random()*40}%;background:${cols[i%cols.length]};--x:${x};animation-delay:${Math.random()*.6}s;animation-duration:${.9+Math.random()*.6}s;position:absolute`;
+      const d=document.createElement('div'); d.className='conf';
+      const x=(Math.random()*160-80)+'px';
+      d.style.cssText=`left:${Math.random()*100}%;top:${50+Math.random()*40}%;background:${cols[i%cols.length]};--x:${x};animation-delay:${Math.random()*.6}s;animation-duration:${.9+Math.random()*.6}s;position:absolute`;
       c.appendChild(d);
     }
-    setTimeout(()=>c.innerHTML='', 3000);
+    setTimeout(()=>c.innerHTML='',3000);
+  },
+
+  checkConfetti() {
+    this.state.goals.filter(g=>g.goal_type!=='lifestyle'&&(g.completed||parseNum(g.saved)>=parseNum(g.target))).forEach(g=>this.launchConfetti(g.id));
   },
 
   // ── PROPERTIES ────────────────────────────────────────────────────────────
   renderProperties() {
-    const totalRent = this.getTotalRent();
-    const totalCF = this.getTotalCashFlow();
-    const totalEquity = this.getTotalEquity();
+    const totalRent=this.getTotalRent(), totalCF=this.getTotalCashFlow(), totalEquity=this.getTotalEquity();
     document.getElementById('props-content').innerHTML = `
       <div class="prop-detail">
         <div class="section-hd-row">
@@ -520,13 +719,11 @@ window.App = {
         <div class="cards2" style="margin-bottom:14px">
           <div class="mcard"><div class="lbl">Total rental income</div><div class="val">${fmt(totalRent)}</div><div class="hint">per month</div></div>
           <div class="mcard"><div class="lbl">Net cash flow</div><div class="val" style="color:${totalCF>=0?'var(--accent)':'var(--danger)'}">${fmt(totalCF)}</div><div class="hint">per month</div></div>
-          <div class="mcard"><div class="lbl">Total equity</div><div class="val">${fmt(totalEquity)}</div><div class="hint">across all properties</div></div>
+          <div class="mcard"><div class="lbl">Total equity</div><div class="val">${fmt(totalEquity)}</div><div class="hint">all properties</div></div>
           <div class="mcard"><div class="lbl">Properties</div><div class="val">${this.state.properties.length}</div><div class="hint">in portfolio</div></div>
         </div>
-
-        ${this.state.properties.length===0?`<div class="empty-state"><i class="ti ti-building"></i><div>No properties yet<br>Add your first one!</div></div>`:''}
+        ${this.state.properties.length===0?`<div class="empty-state"><i class="ti ti-building"></i><div>No properties yet</div></div>`:''}
         ${this.state.properties.map(p=>this.propDetailHTML(p)).join('')}
-
         <div class="sep"></div>
         <div class="prop-section-label" style="margin-top:12px">Rollover planner</div>
         ${this.rolloverHTML()}
@@ -535,11 +732,11 @@ window.App = {
   },
 
   propDetailHTML(p) {
-    const cf = parseNum(p.rent_income)-parseNum(p.mortgage)-parseNum(p.insurance_tax);
-    const equity = parseNum(p.current_value)-parseNum(p.loan_balance);
-    const ltv = parseNum(p.current_value)>0 ? Math.round(parseNum(p.loan_balance)/parseNum(p.current_value)*100) : 0;
-    const grossYield = parseNum(p.current_value)>0 ? (parseNum(p.rent_income)*12/parseNum(p.current_value)*100).toFixed(1) : '—';
-    const statusClass = p.status==='Rented'?'pill-g':p.status==='Vacant'?'pill-r':'pill-o';
+    const cf=parseNum(p.rent_income)-parseNum(p.mortgage)-parseNum(p.insurance_tax);
+    const equity=parseNum(p.current_value)-parseNum(p.loan_balance);
+    const ltv=parseNum(p.current_value)>0?Math.round(parseNum(p.loan_balance)/parseNum(p.current_value)*100):0;
+    const grossYield=parseNum(p.current_value)>0?(parseNum(p.rent_income)*12/parseNum(p.current_value)*100).toFixed(1):'—';
+    const stCls=p.status==='Rented'?'pill-g':p.status==='Vacant'?'pill-r':'pill-o';
     return `<div style="margin-bottom:18px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div class="prop-section-label" style="margin:0">${p.name}</div>
@@ -548,17 +745,17 @@ window.App = {
           <button class="btn-sm" onclick="App.deleteProp('${p.id}')" style="color:var(--danger)"><i class="ti ti-trash" style="font-size:12px"></i></button>
         </div>
       </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">${p.address||'No address'} · <span class="pill ${statusClass}">${p.status||'Rented'}</span></div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">${p.address||'No address'} · <span class="pill ${stCls}">${p.status||'Rented'}</span></div>
       <div class="calc-box">
         <h4>Monthly P&L</h4>
         <div class="crow"><span class="cl">Rental income</span><span style="color:var(--accent)">+${fmt(p.rent_income)}</span></div>
-        <div class="crow"><span class="cl">Mortgage payment</span><span>−${fmt(p.mortgage)}</span></div>
+        <div class="crow"><span class="cl">Mortgage</span><span>−${fmt(p.mortgage)}</span></div>
         <div class="crow"><span class="cl">Insurance + tax</span><span>−${fmt(p.insurance_tax)}</span></div>
         <div class="crow"><span class="cl">Net cash flow</span><span style="color:${cf>=0?'var(--accent)':'var(--danger)'}">${cf>=0?'+':''}${fmt(cf)}</span></div>
       </div>
       <div class="cards2">
         <div class="mcard"><div class="lbl">Equity</div><div class="val">${fmt(equity)}</div></div>
-        <div class="mcard"><div class="lbl">LTV ratio</div><div class="val">${ltv}%</div></div>
+        <div class="mcard"><div class="lbl">LTV</div><div class="val">${ltv}%</div></div>
         <div class="mcard"><div class="lbl">Gross yield</div><div class="val">${grossYield}%</div></div>
         <div class="mcard"><div class="lbl">Current value</div><div class="val">${fmt(p.current_value)}</div></div>
       </div>
@@ -566,80 +763,77 @@ window.App = {
   },
 
   rolloverHTML() {
-    const freeCash = this.getFreeCash();
-    const nextGoal = this.state.goals.filter(g=>!g.completed).sort((a,b)=>parseNum(a.saved)/parseNum(a.target)-parseNum(b.saved)/parseNum(b.target))[0];
-    const remaining = nextGoal ? parseNum(nextGoal.target)-parseNum(nextGoal.saved) : 0;
-    const months = nextGoal && freeCash>0 ? Math.ceil(remaining/freeCash) : null;
+    const freeCash=this.getFreeCash();
+    const nextGoal=this.state.goals.filter(g=>!g.completed&&g.goal_type!=='lifestyle').sort((a,b)=>parseNum(a.saved)/parseNum(a.target)-parseNum(b.saved)/parseNum(b.target))[0];
+    const remaining=nextGoal?Math.max(0,parseNum(nextGoal.target)-parseNum(nextGoal.saved)):0;
+    const months=nextGoal&&freeCash>0?Math.ceil(remaining/freeCash):null;
     return `<div class="calc-box" style="margin-bottom:14px">
       <h4>Next purchase estimate</h4>
       <div class="crow"><span class="cl">Monthly free cash</span><span>${fmt(freeCash)}/mo</span></div>
       ${nextGoal?`
-      <div class="crow"><span class="cl">Target</span><span>${nextGoal.title}</span></div>
+      <div class="crow"><span class="cl">Target goal</span><span>${nextGoal.title}</span></div>
       <div class="crow"><span class="cl">Target amount</span><span>${fmt(nextGoal.target)}</span></div>
       <div class="crow"><span class="cl">Already saved</span><span style="color:var(--accent)">${fmt(nextGoal.saved)}</span></div>
       <div class="crow"><span class="cl">Months to target</span><span style="color:var(--accent)">~${months||'?'} months</span></div>
-      `:`<div class="crow"><span class="cl">No active goals</span><span>—</span></div>`}
+      `:`<div class="crow"><span class="cl">No active savings goals</span><span>—</span></div>`}
     </div>`;
   },
 
   openAddProp() {
-    this.state.editingPropId = null;
-    document.getElementById('prop-sheet-title').textContent = 'Add property';
+    this.state.editingPropId=null;
+    document.getElementById('prop-sheet-title').textContent='Add property';
     ['prop-name','prop-addr','prop-rent','prop-mortgage','prop-ins','prop-purchase','prop-value','prop-loan'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
-    document.getElementById('prop-status').value = 'Rented';
+    document.getElementById('prop-status').value='Rented';
     this.openSheet('propSheet');
   },
 
   openEditProp(id) {
-    const p = this.state.properties.find(x=>x.id===id);
-    if (!p) return;
-    this.state.editingPropId = id;
-    document.getElementById('prop-sheet-title').textContent = 'Edit property';
-    document.getElementById('prop-name').value = p.name||'';
-    document.getElementById('prop-addr').value = p.address||'';
-    document.getElementById('prop-status').value = p.status||'Rented';
-    document.getElementById('prop-rent').value = parseNum(p.rent_income)||'';
-    document.getElementById('prop-mortgage').value = parseNum(p.mortgage)||'';
-    document.getElementById('prop-ins').value = parseNum(p.insurance_tax)||'';
-    document.getElementById('prop-purchase').value = parseNum(p.purchase_price)||'';
-    document.getElementById('prop-value').value = parseNum(p.current_value)||'';
-    document.getElementById('prop-loan').value = parseNum(p.loan_balance)||'';
+    const p=this.state.properties.find(x=>x.id===id); if (!p) return;
+    this.state.editingPropId=id;
+    document.getElementById('prop-sheet-title').textContent='Edit property';
+    document.getElementById('prop-name').value=p.name||'';
+    document.getElementById('prop-addr').value=p.address||'';
+    document.getElementById('prop-status').value=p.status||'Rented';
+    document.getElementById('prop-rent').value=parseNum(p.rent_income)||'';
+    document.getElementById('prop-mortgage').value=parseNum(p.mortgage)||'';
+    document.getElementById('prop-ins').value=parseNum(p.insurance_tax)||'';
+    document.getElementById('prop-purchase').value=parseNum(p.purchase_price)||'';
+    document.getElementById('prop-value').value=parseNum(p.current_value)||'';
+    document.getElementById('prop-loan').value=parseNum(p.loan_balance)||'';
     this.openSheet('propSheet');
   },
 
   async saveProp() {
-    const data = {
-      name: document.getElementById('prop-name').value.trim(),
-      address: document.getElementById('prop-addr').value.trim(),
-      status: document.getElementById('prop-status').value,
-      rent_income: parseNum(document.getElementById('prop-rent').value),
-      mortgage: parseNum(document.getElementById('prop-mortgage').value),
-      insurance_tax: parseNum(document.getElementById('prop-ins').value),
-      purchase_price: parseNum(document.getElementById('prop-purchase').value),
-      current_value: parseNum(document.getElementById('prop-value').value),
-      loan_balance: parseNum(document.getElementById('prop-loan').value),
+    const data={
+      name:document.getElementById('prop-name').value.trim(),
+      address:document.getElementById('prop-addr').value.trim(),
+      status:document.getElementById('prop-status').value,
+      rent_income:parseNum(document.getElementById('prop-rent').value),
+      mortgage:parseNum(document.getElementById('prop-mortgage').value),
+      insurance_tax:parseNum(document.getElementById('prop-ins').value),
+      purchase_price:parseNum(document.getElementById('prop-purchase').value),
+      current_value:parseNum(document.getElementById('prop-value').value),
+      loan_balance:parseNum(document.getElementById('prop-loan').value),
     };
-    if (!data.name) { this.showToast('Enter property name', 'error'); return; }
+    if (!data.name) { this.showToast('Enter property name','error'); return; }
     if (this.state.editingPropId) {
-      await DB.update('properties', this.state.editingPropId, data);
-      const idx = this.state.properties.findIndex(p=>p.id===this.state.editingPropId);
-      if (idx>=0) this.state.properties[idx] = {...this.state.properties[idx],...data};
+      await DB.update('properties',this.state.editingPropId,data);
+      const idx=this.state.properties.findIndex(p=>p.id===this.state.editingPropId);
+      if (idx>=0) this.state.properties[idx]={...this.state.properties[idx],...data};
     } else {
-      const p = await DB.insert('properties', data);
+      const p=await DB.insert('properties',data);
       this.state.properties.unshift(p);
     }
     this.closeSheet('propSheet');
-    this.renderProperties();
-    this.renderDashboard();
+    this.renderProperties(); this.renderDashboard();
     this.showToast(this.state.editingPropId?'Property updated!':'Property added!','success');
   },
 
   async deleteProp(id) {
     if (!confirm('Delete this property?')) return;
-    this.state.properties = this.state.properties.filter(p=>p.id!==id);
-    await DB.delete('properties', id);
-    this.renderProperties();
-    this.renderDashboard();
+    this.state.properties=this.state.properties.filter(p=>p.id!==id);
+    await DB.delete('properties',id);
+    this.renderProperties(); this.renderDashboard();
     this.showToast('Property deleted');
   },
 
@@ -649,28 +843,13 @@ window.App = {
     document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
     document.getElementById('page-'+id).classList.add('active');
     document.getElementById('nav-'+id).classList.add('active');
-    if (id==='goals') setTimeout(()=>{ this.animateBars(); this.checkConfetti(); }, 250);
+    if (id==='goals') setTimeout(()=>{ this.animateBars(); this.checkConfetti(); },250);
   },
 
-  checkConfetti() {
-    this.state.goals.filter(g=>g.completed||parseNum(g.saved)>=parseNum(g.target)).forEach(g=>{
-      this.launchConfetti(g.id);
-    });
-  },
-
-  animateBars() {
-    document.querySelectorAll('.bar-fill[data-pct]').forEach(el=>{
-      el.style.width = el.dataset.pct + '%';
-    });
-  },
-
+  animateBars() { document.querySelectorAll('.bar-fill[data-pct]').forEach(el=>{ el.style.width=el.dataset.pct+'%'; }); },
   openSheet(id) { document.getElementById(id).classList.add('show'); },
   closeSheet(id) { document.getElementById(id).classList.remove('show'); },
-
-  timeOfDay() {
-    const h = new Date().getHours();
-    if (h<12) return 'morning'; if (h<17) return 'afternoon'; return 'evening';
-  }
+  timeOfDay() { const h=new Date().getHours(); return h<12?'morning':h<17?'afternoon':'evening'; }
 };
 
-document.addEventListener('DOMContentLoaded', () => App.init());
+document.addEventListener('DOMContentLoaded',()=>App.init());
