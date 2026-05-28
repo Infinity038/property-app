@@ -29,7 +29,7 @@ window.App = {
     incomeEntries:[], rentalIncome:0,
     activeExp:'All', scanFile:null, scanCatSel:null,
     editingGoalId:null, editingPropId:null, editingIncomeId:null,
-    dragGoalId:null, dragOverId:null
+    expDateFrom:'', expDateTo:'', incDateFrom:'', incDateTo:''
   },
 
   async init() {
@@ -105,7 +105,13 @@ window.App = {
   getGoalsAllocated() {
     return this.state.goals.filter(g=>!g.completed&&g.goal_type!=='lifestyle').reduce((s,g)=>s+parseNum(g.monthly_allocation),0);
   },
+  // Free cash = income minus tracked expenses minus goal allocations
+  // Expenses tab tracks actual spending. Goals allocation is money set aside but not yet spent.
   getFreeCash() {
+    return this.getTotalIncome() - this.getTotalExpenses() - this.getGoalsAllocated();
+  },
+  // Unassigned = income minus expenses minus goal allocations (what's truly unplanned)
+  getUnassigned() {
     return this.getTotalIncome() - this.getTotalExpenses() - this.getGoalsAllocated();
   },
   getTotalOpeningBalance() {
@@ -131,6 +137,16 @@ window.App = {
     const sideHustle = this.getThisMonthSideHustle();
     const nextGoal = this.state.goals.filter(g=>!g.completed&&g.goal_type!=='lifestyle').sort((a,b)=>parseNum(b.saved)/parseNum(b.target)-parseNum(a.saved)/parseNum(a.target))[0];
 
+    const goalsAllocated = this.getGoalsAllocated();
+    const unassigned = this.getUnassigned();
+    const bannerColor = unassigned < 0 ? '#FCEBEB' : unassigned < 2000 ? '#FAEEDA' : '#E1F5EE';
+    const bannerText = unassigned < 0 ? '#A32D2D' : unassigned < 2000 ? '#854F0B' : '#0F6E56';
+    const bannerIcon = unassigned < 0 ? 'ti-alert-triangle' : unassigned < 2000 ? 'ti-alert-circle' : 'ti-piggy-bank';
+    const bannerMsg = unassigned < 0
+      ? `You're over budget by ${fmt(Math.abs(unassigned))} this month`
+      : unassigned === 0 ? 'Every kr. is assigned — fully planned!'
+      : `${fmt(unassigned)} unassigned this month — add to a goal?`;
+
     document.getElementById('dash-content').innerHTML = `
       <div class="dash-hd">
         <div class="dh-top">
@@ -151,12 +167,25 @@ window.App = {
           ${sideHustle>0?`<span class="badge"><i class="ti ti-bolt" style="font-size:11px"></i> +${fmt(sideHustle)} side hustle</span>`:''}
         </div>
       </div>
+
+      <!-- FREE CASH BANNER -->
+      <div style="margin:12px 18px 0;background:${bannerColor};border-radius:14px;padding:13px 15px;display:flex;align-items:center;gap:12px;cursor:pointer" onclick="App.switchPage('goals')">
+        <div style="width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.6);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i class="ti ${bannerIcon}" style="font-size:20px;color:${bannerText}"></i>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:800;color:${bannerText}">${fmt(unassigned)} free cash</div>
+          <div style="font-size:12px;color:${bannerText};opacity:.8">${bannerMsg}</div>
+        </div>
+        <i class="ti ti-chevron-right" style="font-size:16px;color:${bannerText};opacity:.6"></i>
+      </div>
+
       <div class="sec" style="margin-top:14px">
         <div class="sec-hd"><span class="sec-title">Monthly snapshot</span></div>
         <div class="cards2">
           <div class="mcard"><div class="lbl">Total income</div><div class="val">${fmt(income)}</div><div class="hint">salary + rental${sideHustle>0?' + hustle':''}</div></div>
-          <div class="mcard"><div class="lbl">This month exp.</div><div class="val">${fmt(expenses)}</div><div class="hint">tracked expenses</div></div>
-          <div class="mcard"><div class="lbl">Savings rate</div><div class="val">${savingsRate}%</div><div class="hint">${fmt(freeCash)} free/mo</div></div>
+          <div class="mcard"><div class="lbl">Expenses this mo.</div><div class="val">${fmt(expenses)}</div><div class="hint">tracked spending</div></div>
+          <div class="mcard"><div class="lbl">Goal allocations</div><div class="val">${fmt(goalsAllocated)}</div><div class="hint">set aside/mo</div></div>
           <div class="mcard"><div class="lbl">Total saved</div><div class="val">${fmt(this.getTotalSaved())}</div><div class="hint">across all goals</div></div>
         </div>
       </div>
@@ -202,6 +231,7 @@ window.App = {
     const rental = parseNum(this.state.rentalIncome);
     const now = new Date();
     const monthEntries = this.state.incomeEntries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
+    const filteredIncome = this.getFilteredIncome();
     const totalThisMonth = parseNum(p1.monthly_salary)+parseNum(p1.bonus)+parseNum(p2.monthly_salary)+parseNum(p2.bonus)+rental+monthEntries.reduce((s,e)=>s+parseNum(e.amount),0);
 
     document.getElementById('salary-content').innerHTML = `
@@ -263,12 +293,24 @@ window.App = {
             <div style="font-size:15px;font-weight:800">Side hustle log</div>
             <button class="btn-sm" onclick="App.openAddIncome()"><i class="ti ti-plus" style="font-size:13px"></i> Add</button>
           </div>
-          <div style="background:var(--accent-light);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
-            <span style="font-size:13px;color:var(--accent-dark);font-weight:700">This month total</span>
-            <span style="font-size:18px;font-weight:800;color:var(--accent-dark)">${fmt(this.getThisMonthSideHustle())}</span>
+
+          <!-- Date filter -->
+          <div style="background:var(--faint);border-radius:12px;padding:10px 12px;margin-bottom:12px">
+            <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px"><i class="ti ti-calendar" style="font-size:13px;vertical-align:-2px;margin-right:4px"></i>Filter by date</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="date" id="inc-from" value="${this.state.incDateFrom}" onchange="App.setIncFilter()" style="flex:1;border:1px solid var(--border);border-radius:8px;padding:7px 8px;font-size:12px;background:#fff;font-family:inherit">
+              <span style="font-size:12px;color:var(--muted)">to</span>
+              <input type="date" id="inc-to" value="${this.state.incDateTo}" onchange="App.setIncFilter()" style="flex:1;border:1px solid var(--border);border-radius:8px;padding:7px 8px;font-size:12px;background:#fff;font-family:inherit">
+              ${this.state.incDateFrom||this.state.incDateTo?`<button onclick="App.clearIncFilter()" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:18px;padding:0"><i class="ti ti-x"></i></button>`:''}
+            </div>
           </div>
-          ${this.state.incomeEntries.length===0?`<div class="empty-state"><i class="ti ti-bolt"></i><div>No side hustle entries yet</div></div>`:''}
-          ${this.state.incomeEntries.map(e=>`
+
+          <div style="background:var(--accent-light);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:13px;color:var(--accent-dark);font-weight:700">${this.state.incDateFrom||this.state.incDateTo?'Filtered total':'This month total'}</span>
+            <span style="font-size:18px;font-weight:800;color:var(--accent-dark)">${fmt(this.getFilteredIncomeTotal())}</span>
+          </div>
+          ${filteredIncome.length===0?`<div class="empty-state"><i class="ti ti-bolt"></i><div>No entries found</div></div>`:''}
+          ${filteredIncome.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(e=>`
             <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
               <div style="width:36px;height:36px;border-radius:10px;background:var(--accent-light);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-bolt" style="font-size:16px;color:var(--accent)"></i></div>
               <div style="flex:1;min-width:0">
@@ -356,18 +398,54 @@ window.App = {
     this.state.incomeEntries = this.state.incomeEntries.filter(e=>e.id!==id);
     await DB.delete('income_entries', id);
     this.renderSalary();
+    setTimeout(()=>{ const tab=document.querySelector('#page-salary .inner-tab:nth-child(4)'); if(tab) this.showIncomeTab('sidehustle',tab); },10);
     this.renderDashboard();
     this.showToast('Entry deleted');
   },
 
-  // ── EXPENSES ──────────────────────────────────────────────────────────────
+  setIncFilter() {
+    this.state.incDateFrom=document.getElementById('inc-from')?.value||'';
+    this.state.incDateTo=document.getElementById('inc-to')?.value||'';
+    this.renderSalary();
+    setTimeout(()=>{ const tab=document.querySelector('#page-salary .inner-tab:nth-child(4)'); if(tab) this.showIncomeTab('sidehustle',tab); },10);
+  },
+  clearIncFilter() { this.state.incDateFrom=''; this.state.incDateTo=''; this.setIncFilter(); },
+  getFilteredIncome() {
+    if (!this.state.incDateFrom&&!this.state.incDateTo) {
+      const now=new Date();
+      return this.state.incomeEntries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
+    }
+    return this.state.incomeEntries.filter(e=>{
+      const d=new Date(e.date);
+      const from=this.state.incDateFrom?new Date(this.state.incDateFrom):new Date(0);
+      const to=this.state.incDateTo?new Date(this.state.incDateTo+'T23:59:59'):new Date();
+      return d>=from&&d<=to;
+    });
+  },
+  getFilteredIncomeTotal() { return this.getFilteredIncome().reduce((s,e)=>s+parseNum(e.amount),0); },
+  setExpFilter() { this.state.expDateFrom=document.getElementById('exp-from')?.value||''; this.state.expDateTo=document.getElementById('exp-to')?.value||''; this.renderExpenses(); },
+  clearExpFilter() { this.state.expDateFrom=''; this.state.expDateTo=''; this.renderExpenses(); },
   renderExpenses() {
     const now = new Date(); const m=now.getMonth(), y=now.getFullYear();
-    const monthExp = this.state.expenses.filter(e=>{ const d=new Date(e.date||e.created_at); return d.getMonth()===m&&d.getFullYear()===y; });
-    const filtered = this.state.activeExp==='All' ? monthExp : monthExp.filter(e=>e.category===this.state.activeExp);
-    const total = monthExp.reduce((s,e)=>s+parseNum(e.amount),0);
-    const recurring = monthExp.filter(e=>e.is_recurring);
-    const cats = ['All',...new Set(monthExp.map(e=>e.category))];
+    // Apply date range filter if set, otherwise show current month
+    let filtered_src;
+    if (this.state.expDateFrom || this.state.expDateTo) {
+      filtered_src = this.state.expenses.filter(e=>{
+        const d = new Date(e.date||e.created_at);
+        const from = this.state.expDateFrom ? new Date(this.state.expDateFrom) : new Date(0);
+        const to = this.state.expDateTo ? new Date(this.state.expDateTo+'T23:59:59') : new Date();
+        return d>=from && d<=to;
+      });
+    } else {
+      filtered_src = this.state.expenses.filter(e=>{ const d=new Date(e.date||e.created_at); return d.getMonth()===m&&d.getFullYear()===y; });
+    }
+    const filtered = this.state.activeExp==='All' ? filtered_src : filtered_src.filter(e=>e.category===this.state.activeExp);
+    const total = filtered_src.reduce((s,e)=>s+parseNum(e.amount),0);
+    const recurring = filtered_src.filter(e=>e.is_recurring);
+    const cats = ['All',...new Set(filtered_src.map(e=>e.category))];
+    const dateLabel = this.state.expDateFrom||this.state.expDateTo
+      ? `${this.state.expDateFrom||'start'} → ${this.state.expDateTo||'today'}`
+      : `${now.toLocaleString('default',{month:'long'})} ${y}`;
 
     document.getElementById('expenses-content').innerHTML = `
       <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="App.handleDrop(event)">
@@ -376,25 +454,49 @@ window.App = {
         <small>AI scans & suggests category automatically</small>
         <input type="file" id="file-input" accept="image/*" capture="environment" style="display:none" onchange="App.handleFileSelect(event)">
       </div>
+
+      <!-- DATE FILTER -->
+      <div style="padding:0 18px 10px">
+        <div style="background:var(--faint);border-radius:12px;padding:10px 12px">
+          <div style="font-size:11px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px"><i class="ti ti-calendar" style="font-size:13px;vertical-align:-2px;margin-right:4px"></i>Date filter</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <div style="flex:1"><input type="date" id="exp-from" value="${this.state.expDateFrom}" onchange="App.setExpFilter()" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:7px 8px;font-size:12px;background:#fff;font-family:inherit"></div>
+            <span style="font-size:12px;color:var(--muted);flex-shrink:0">to</span>
+            <div style="flex:1"><input type="date" id="exp-to" value="${this.state.expDateTo}" onchange="App.setExpFilter()" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:7px 8px;font-size:12px;background:#fff;font-family:inherit"></div>
+            ${this.state.expDateFrom||this.state.expDateTo?`<button onclick="App.clearExpFilter()" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:18px;flex-shrink:0;padding:0"><i class="ti ti-x"></i></button>`:''}
+          </div>
+        </div>
+      </div>
+
       ${recurring.length>0?`
       <div style="padding:0 18px 10px">
         <div style="background:#FAEEDA;border-radius:12px;padding:10px 14px;font-size:13px;color:#854F0B;display:flex;justify-content:space-between;align-items:center">
           <span><i class="ti ti-refresh" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i> <strong>${recurring.length} recurring</strong> · ${fmt(recurring.reduce((s,e)=>s+parseNum(e.amount),0))}/mo</span>
-          <button onclick="App.toggleRecurringView()" style="background:none;border:none;font-size:12px;color:#854F0B;cursor:pointer;font-weight:700">View</button>
         </div>
       </div>`:``}
+
       <div class="exp-hd">
-        <span>${now.toLocaleString('default',{month:'long'})} ${y}</span>
-        <span style="color:var(--danger)">${fmt(total)} total</span>
+        <span>${dateLabel}</span>
+        <span style="color:var(--danger)">${fmt(total)}</span>
       </div>
       <div class="exp-filters">
         ${cats.map(c=>`<button class="filter-pill${this.state.activeExp===c?' active':''}" onclick="App.filterExp('${c}')">${c}</button>`).join('')}
       </div>
-      ${filtered.length===0?`<div class="empty-state"><i class="ti ti-receipt"></i><div>No expenses yet this month</div></div>`:''}
-      <div id="exp-list">${filtered.map(e=>this.expItemHTML(e)).join('')}</div>
+      ${filtered.length===0?`<div class="empty-state"><i class="ti ti-receipt"></i><div>No expenses found</div></div>`:''}
+      <div id="exp-list">${filtered.sort((a,b)=>new Date(b.date||b.created_at)-new Date(a.date||a.created_at)).map(e=>this.expItemHTML(e)).join('')}</div>
       <div style="padding:14px 18px">
         <button class="add-card-btn" onclick="App.openAddExpense()"><i class="ti ti-plus" style="font-size:18px"></i> Add expense manually</button>
       </div>`;
+  },
+
+  setExpFilter() {
+    this.state.expDateFrom = document.getElementById('exp-from')?.value||'';
+    this.state.expDateTo = document.getElementById('exp-to')?.value||'';
+    this.renderExpenses();
+  },
+  clearExpFilter() {
+    this.state.expDateFrom=''; this.state.expDateTo='';
+    this.renderExpenses();
   },
 
   expItemHTML(e) {
@@ -496,25 +598,30 @@ window.App = {
           <button class="btn-sm" onclick="App.openAddGoal()"><i class="ti ti-plus" style="font-size:13px"></i> Add goal</button>
         </div>
         <div style="background:var(--faint);border-radius:12px;padding:9px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px">
-          <i class="ti ti-grip-vertical" style="font-size:14px"></i> Hold and drag goals to reorder them
+          <i class="ti ti-arrows-up-down" style="font-size:14px"></i> Use ↑ ↓ buttons on each goal to reorder
         </div>
         ${this.state.goals.length===0?`<div class="empty-state"><i class="ti ti-target"></i><div>No goals yet — add your first!</div></div>`:''}
-        <div id="goals-list" ondragover="App.onDragOver(event)" ondrop="App.onDrop(event)">
-          ${this.state.goals.map(g=>this.goalCardHTML(g)).join('')}
+        <div id="goals-list">
+          ${this.state.goals.map((g,i)=>this.goalCardHTML(g,i,this.state.goals.length)).join('')}
         </div>
         <div style="background:var(--faint);border-radius:14px;padding:14px;border:1px solid var(--border);margin-top:8px">
-          <div style="font-size:12px;font-weight:800;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.6px">Monthly allocation</div>
-          <div class="summary-row"><span class="sr-lbl">Salary + rental income</span><span class="sr-val">${fmt(this.getTotalSalary()+parseNum(this.state.rentalIncome))}/mo</span></div>
-          <div class="summary-row"><span class="sr-lbl">Side hustle (this month)</span><span class="sr-val">${fmt(this.getThisMonthSideHustle())}</span></div>
-          <div class="summary-row"><span class="sr-lbl">Expenses this month</span><span class="sr-val" style="color:var(--danger)">−${fmt(this.getTotalExpenses())}</span></div>
-          <div class="summary-row"><span class="sr-lbl">Allocated to goals</span><span class="sr-val">−${fmt(allocated)}/mo</span></div>
-          <div class="summary-row" style="border-top:1.5px solid var(--border2);padding-top:8px;margin-top:4px"><span class="sr-lbl" style="font-weight:800;color:var(--text)">Free cash</span><span class="sr-val" style="font-size:16px;color:${free>=0?'var(--accent)':'var(--danger)'}">${fmt(free)}/mo</span></div>
+          <div style="font-size:12px;font-weight:800;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.6px">Monthly money flow</div>
+          <div class="summary-row"><span class="sr-lbl">Salary (Jovannie + Melody)</span><span class="sr-val" style="color:var(--accent)">+${fmt(this.getTotalSalary())}/mo</span></div>
+          <div class="summary-row"><span class="sr-lbl">Rental income</span><span class="sr-val" style="color:var(--accent)">+${fmt(parseNum(this.state.rentalIncome))}/mo</span></div>
+          ${this.getThisMonthSideHustle()>0?`<div class="summary-row"><span class="sr-lbl">Side hustle (this month)</span><span class="sr-val" style="color:var(--accent)">+${fmt(this.getThisMonthSideHustle())}</span></div>`:''}
+          <div class="summary-row"><span class="sr-lbl">= Total income</span><span class="sr-val" style="font-weight:800">${fmt(this.getTotalIncome())}/mo</span></div>
+          <div class="summary-row"><span class="sr-lbl">− Tracked expenses</span><span class="sr-val" style="color:var(--danger)">−${fmt(this.getTotalExpenses())}</span></div>
+          <div class="summary-row"><span class="sr-lbl">− Goal allocations</span><span class="sr-val">−${fmt(allocated)}/mo</span></div>
+          <div class="summary-row" style="border-top:1.5px solid var(--border2);padding-top:8px;margin-top:4px">
+            <span class="sr-lbl" style="font-weight:800;color:var(--text)">= Unassigned cash</span>
+            <span class="sr-val" style="font-size:16px;color:${free>=0?'var(--accent)':'var(--danger)'}">${fmt(free)}</span>
+          </div>
         </div>
       </div>`;
     setTimeout(()=>{ this.animateBars(); this.checkConfetti(); },300);
   },
 
-  goalCardHTML(g) {
+  goalCardHTML(g, idx=0, total=1) {
     const isLife=g.goal_type==='lifestyle';
     const cur=isLife?parseNum(g.lifestyle_balance):parseNum(g.saved);
     const cap=isLife?parseNum(g.lifestyle_cap):parseNum(g.target);
@@ -523,12 +630,14 @@ window.App = {
     const remaining=Math.max(0,cap-cur);
     const months=!isLife&&parseNum(g.monthly_allocation)>0?Math.ceil(remaining/parseNum(g.monthly_allocation)):null;
 
-    return `<div class="goal-card${done?' done':''}${isLife?' lifestyle-card':''}" id="gcard-${g.id}" draggable="true"
-      ondragstart="App.onDragStart(event,'${g.id}')" ondragend="App.onDragEnd(event)">
+    return `<div class="goal-card${done?' done':''}${isLife?' lifestyle-card':''}" id="gcard-${g.id}">
       <div id="conf-${g.id}"></div>
       <div style="display:flex;align-items:flex-start;gap:6px">
-        <div style="cursor:grab;color:var(--muted);padding:2px 2px 0 0;font-size:18px"><i class="ti ti-grip-vertical"></i></div>
-        <div style="flex:1">
+        <div style="display:flex;flex-direction:column;gap:4px;padding-top:2px">
+          <button onclick="App.moveGoal('${g.id}',-1)" ${idx===0?'disabled':''} style="background:${idx===0?'var(--faint)':'var(--accent-light)'};border:1px solid var(--border);border-radius:8px;width:28px;height:28px;cursor:${idx===0?'default':'pointer'};display:flex;align-items:center;justify-content:center;font-size:14px;color:${idx===0?'var(--muted)':'var(--accent)'}"><i class="ti ti-chevron-up"></i></button>
+          <button onclick="App.moveGoal('${g.id}',1)" ${idx===total-1?'disabled':''} style="background:${idx===total-1?'var(--faint)':'var(--accent-light)'};border:1px solid var(--border);border-radius:8px;width:28px;height:28px;cursor:${idx===total-1?'default':'pointer'};display:flex;align-items:center;justify-content:center;font-size:14px;color:${idx===total-1?'var(--muted)':'var(--accent)'}"><i class="ti ti-chevron-down"></i></button>
+        </div>
+        <div style="flex:1;min-width:0">
           <div class="g-hd">
             <div class="g-ico${done?' done-ico':''}${isLife?' lifestyle-ico':''}"><i class="ti ${g.icon||'ti-target'}"></i></div>
             <div style="flex:1;min-width:0">
@@ -558,25 +667,15 @@ window.App = {
     </div>`;
   },
 
-  // Drag & drop reorder
-  onDragStart(e, id) { this.state.dragGoalId=id; e.currentTarget.style.opacity='0.5'; },
-  onDragEnd(e) { e.currentTarget.style.opacity='1'; },
-  onDragOver(e) { e.preventDefault(); },
-  onDrop(e) {
-    e.preventDefault();
-    const target=e.target.closest('.goal-card');
-    if (!target||!this.state.dragGoalId) return;
-    const toId=target.id.replace('gcard-','');
-    if (toId===this.state.dragGoalId) return;
-    const goals=this.state.goals;
-    const fromIdx=goals.findIndex(g=>g.id===this.state.dragGoalId);
-    const toIdx=goals.findIndex(g=>g.id===toId);
-    if (fromIdx<0||toIdx<0) return;
-    const [moved]=goals.splice(fromIdx,1);
-    goals.splice(toIdx,0,moved);
+  // Move goal up or down by direction (-1 or +1)
+  moveGoal(id, dir) {
+    const goals = this.state.goals;
+    const idx = goals.findIndex(g=>g.id===id);
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= goals.length) return;
+    [goals[idx], goals[newIdx]] = [goals[newIdx], goals[idx]];
     goals.forEach((g,i)=>{ g.sort_order=i; DB.update('goals',g.id,{sort_order:i}); });
     this.renderGoals();
-    this.state.dragGoalId=null;
   },
 
   openAddGoal() {
