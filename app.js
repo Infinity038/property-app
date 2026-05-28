@@ -1,4 +1,13 @@
-// app.js — Ducay Property Portfolio App v2
+// Safe date parse that avoids UTC timezone shift on date-only strings
+const parseDate = s => {
+  if (!s) return new Date();
+  // date-only strings like "2026-05-28" must be parsed as local, not UTC
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y,m,d] = s.split('-').map(Number);
+    return new Date(y, m-1, d);
+  }
+  return new Date(s);
+};
 
 const CURRENCY = 'kr.';
 const fmt = n => Number(n||0).toLocaleString('da-DK', {minimumFractionDigits:0,maximumFractionDigits:0}) + ' ' + CURRENCY;
@@ -90,14 +99,14 @@ window.App = {
   },
   getThisMonthSideHustle() {
     const now = new Date(); const m=now.getMonth(), y=now.getFullYear();
-    return this.state.incomeEntries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===m&&d.getFullYear()===y; }).reduce((s,e)=>s+parseNum(e.amount),0);
+    return this.state.incomeEntries.filter(e=>{ const d=parseDate(e.date); return d.getMonth()===m&&d.getFullYear()===y; }).reduce((s,e)=>s+parseNum(e.amount),0);
   },
   getTotalIncome() {
     return this.getTotalSalary() + parseNum(this.state.rentalIncome) + this.getThisMonthSideHustle();
   },
   getTotalExpenses() {
     const now = new Date(); const m=now.getMonth(), y=now.getFullYear();
-    return this.state.expenses.filter(e=>{ const d=new Date(e.date||e.created_at); return d.getMonth()===m&&d.getFullYear()===y; }).reduce((s,e)=>s+parseNum(e.amount),0);
+    return this.state.expenses.filter(e=>{ const d=parseDate(e.date||e.created_at); return d.getMonth()===m&&d.getFullYear()===y; }).reduce((s,e)=>s+parseNum(e.amount),0);
   },
   getTotalRent() { return this.state.properties.reduce((s,p)=>s+parseNum(p.rent_income),0); },
   getTotalCashFlow() { return this.state.properties.reduce((s,p)=>s+parseNum(p.rent_income)-parseNum(p.mortgage)-parseNum(p.insurance_tax),0); },
@@ -230,7 +239,7 @@ window.App = {
     const p2 = this.state.profiles[1]||{name:'Melody Ducay',monthly_salary:0,pay_frequency:'Monthly',bonus:0,salary_day:1,opening_balance:0};
     const rental = parseNum(this.state.rentalIncome);
     const now = new Date();
-    const monthEntries = this.state.incomeEntries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
+    const monthEntries = this.state.incomeEntries.filter(e=>{ const d=parseDate(e.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
     const filteredIncome = this.getFilteredIncome();
     const totalThisMonth = parseNum(p1.monthly_salary)+parseNum(p1.bonus)+parseNum(p2.monthly_salary)+parseNum(p2.bonus)+rental+monthEntries.reduce((s,e)=>s+parseNum(e.amount),0);
 
@@ -310,12 +319,12 @@ window.App = {
             <span style="font-size:18px;font-weight:800;color:var(--accent-dark)">${fmt(this.getFilteredIncomeTotal())}</span>
           </div>
           ${filteredIncome.length===0?`<div class="empty-state"><i class="ti ti-bolt"></i><div>No entries found</div></div>`:''}
-          ${filteredIncome.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(e=>`
+          ${filteredIncome.sort((a,b)=>parseDate(b.date)-parseDate(a.date)).map(e=>`
             <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
               <div style="width:36px;height:36px;border-radius:10px;background:var(--accent-light);display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-bolt" style="font-size:16px;color:var(--accent)"></i></div>
               <div style="flex:1;min-width:0">
                 <div style="font-size:14px;font-weight:600">${e.description}</div>
-                <div style="font-size:11px;color:var(--muted)">${new Date(e.date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}${e.is_recurring?` · <span style="color:var(--accent)">↻ ${e.recurrence}</span>`:''}</div>
+                <div style="font-size:11px;color:var(--muted)">${parseDate(e.date).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}${e.is_recurring?` · <span style="color:var(--accent)">↻ ${e.recurrence}</span>`:''}</div>
               </div>
               <div style="text-align:right">
                 <div style="font-size:14px;font-weight:800;color:var(--accent)">${fmt(e.amount)}</div>
@@ -413,10 +422,10 @@ window.App = {
   getFilteredIncome() {
     if (!this.state.incDateFrom&&!this.state.incDateTo) {
       const now=new Date();
-      return this.state.incomeEntries.filter(e=>{ const d=new Date(e.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
+      return this.state.incomeEntries.filter(e=>{ const d=parseDate(e.date); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
     }
     return this.state.incomeEntries.filter(e=>{
-      const d=new Date(e.date);
+      const d=parseDate(e.date);
       const from=this.state.incDateFrom?new Date(this.state.incDateFrom):new Date(0);
       const to=this.state.incDateTo?new Date(this.state.incDateTo+'T23:59:59'):new Date();
       return d>=from&&d<=to;
@@ -431,13 +440,13 @@ window.App = {
     let filtered_src;
     if (this.state.expDateFrom || this.state.expDateTo) {
       filtered_src = this.state.expenses.filter(e=>{
-        const d = new Date(e.date||e.created_at);
+        const d = parseDate(e.date||e.created_at);
         const from = this.state.expDateFrom ? new Date(this.state.expDateFrom) : new Date(0);
         const to = this.state.expDateTo ? new Date(this.state.expDateTo+'T23:59:59') : new Date();
         return d>=from && d<=to;
       });
     } else {
-      filtered_src = this.state.expenses.filter(e=>{ const d=new Date(e.date||e.created_at); return d.getMonth()===m&&d.getFullYear()===y; });
+      filtered_src = this.state.expenses.filter(e=>{ const d=parseDate(e.date||e.created_at); return d.getMonth()===m&&d.getFullYear()===y; });
     }
     const filtered = this.state.activeExp==='All' ? filtered_src : filtered_src.filter(e=>e.category===this.state.activeExp);
     const total = filtered_src.reduce((s,e)=>s+parseNum(e.amount),0);
@@ -483,7 +492,7 @@ window.App = {
         ${cats.map(c=>`<button class="filter-pill${this.state.activeExp===c?' active':''}" onclick="App.filterExp('${c}')">${c}</button>`).join('')}
       </div>
       ${filtered.length===0?`<div class="empty-state"><i class="ti ti-receipt"></i><div>No expenses found</div></div>`:''}
-      <div id="exp-list">${filtered.sort((a,b)=>new Date(b.date||b.created_at)-new Date(a.date||a.created_at)).map(e=>this.expItemHTML(e)).join('')}</div>
+      <div id="exp-list">${filtered.sort((a,b)=>parseDate(b.date||b.created_at)-parseDate(a.date||a.created_at)).map(e=>this.expItemHTML(e)).join('')}</div>
       <div style="padding:14px 18px">
         <button class="add-card-btn" onclick="App.openAddExpense()"><i class="ti ti-plus" style="font-size:18px"></i> Add expense manually</button>
       </div>`;
@@ -507,7 +516,7 @@ window.App = {
       <div class="exp-cat-ico" style="background:${bg}"><i class="ti ${ico}" style="color:${col}"></i></div>
       <div style="flex:1;min-width:0">
         <div class="exp-name">${e.name}${e.is_recurring?` <span style="font-size:10px;background:#FAEEDA;color:#854F0B;padding:2px 6px;border-radius:10px;font-weight:700">↻ ${e.recurrence||'recurring'}</span>`:''}</div>
-        <div class="exp-catname">${e.category} · ${new Date(e.date||e.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}${e.receipt_url?` · <span style="color:var(--accent)">📎</span>`:''}</div>
+        <div class="exp-catname">${e.category} · ${parseDate(e.date||e.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}${e.receipt_url?` · <span style="color:var(--accent)">📎</span>`:''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <div class="exp-amt">${fmt(e.amount)}</div>
