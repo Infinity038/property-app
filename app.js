@@ -856,6 +856,9 @@ window.App = {
     const ltv=parseNum(p.current_value)>0?Math.round(parseNum(p.loan_balance)/parseNum(p.current_value)*100):0;
     const grossYield=parseNum(p.current_value)>0?(parseNum(p.rent_income)*12/parseNum(p.current_value)*100).toFixed(1):'—';
     const stCls=p.status==='Rented'?'pill-g':p.status==='Vacant'?'pill-r':'pill-o';
+    const amort = this.calcAmortization(p);
+    const ltvColor = ltv>90?'var(--danger)':ltv>75?'var(--warning)':'var(--accent)';
+
     return `<div style="margin-bottom:18px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div class="prop-section-label" style="margin:0">${p.name}</div>
@@ -865,20 +868,123 @@ window.App = {
         </div>
       </div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:8px">${p.address||'No address'} · <span class="pill ${stCls}">${p.status||'Rented'}</span></div>
+
       <div class="calc-box">
         <h4>Monthly P&L</h4>
         <div class="crow"><span class="cl">Rental income</span><span style="color:var(--accent)">+${fmt(p.rent_income)}</span></div>
-        <div class="crow"><span class="cl">Mortgage</span><span>−${fmt(p.mortgage)}</span></div>
+        <div class="crow"><span class="cl">Mortgage payment</span><span>−${fmt(p.mortgage)}</span></div>
         <div class="crow"><span class="cl">Insurance + tax</span><span>−${fmt(p.insurance_tax)}</span></div>
         <div class="crow"><span class="cl">Net cash flow</span><span style="color:${cf>=0?'var(--accent)':'var(--danger)'}">${cf>=0?'+':''}${fmt(cf)}</span></div>
       </div>
-      <div class="cards2">
-        <div class="mcard"><div class="lbl">Equity</div><div class="val">${fmt(equity)}</div></div>
-        <div class="mcard"><div class="lbl">LTV</div><div class="val">${ltv}%</div></div>
-        <div class="mcard"><div class="lbl">Gross yield</div><div class="val">${grossYield}%</div></div>
+
+      <div class="cards2" style="margin-bottom:12px">
+        <div class="mcard"><div class="lbl">Equity</div><div class="val">${fmt(equity)}</div><div class="hint">value − loan</div></div>
+        <div class="mcard"><div class="lbl">LTV ratio</div><div class="val" style="color:${ltvColor}">${ltv}%</div><div class="hint">${ltv<=80?'✓ Good position':ltv<=90?'⚠ Getting high':'⚠ Very high'}</div></div>
+        <div class="mcard"><div class="lbl">Gross yield</div><div class="val">${grossYield}%</div><div class="hint">annual rent / value</div></div>
         <div class="mcard"><div class="lbl">Current value</div><div class="val">${fmt(p.current_value)}</div></div>
       </div>
+
+      ${amort ? `
+      <div class="calc-box">
+        <h4>Mortgage breakdown</h4>
+        <div class="crow"><span class="cl">Loan balance</span><span>${fmt(p.loan_balance)}</span></div>
+        <div class="crow"><span class="cl">Interest rate</span><span>${p.interest_rate||0}% / year</span></div>
+        <div class="crow"><span class="cl">Monthly payment</span><span>${fmt(p.mortgage)}</span></div>
+        <div class="crow"><span class="cl">↳ Interest portion</span><span style="color:var(--danger)">−${fmt(amort.monthlyInterest)}</span></div>
+        <div class="crow"><span class="cl">↳ Principal portion</span><span style="color:var(--accent)">−${fmt(amort.monthlyPrincipal)}</span></div>
+        <div class="crow"><span class="cl">Total paid so far</span><span>${fmt(amort.totalPaid)}</span></div>
+        <div class="crow"><span class="cl">Interest paid so far</span><span style="color:var(--danger)">${fmt(amort.totalInterestPaid)}</span></div>
+        <div class="crow"><span class="cl">Months remaining</span><span>${amort.monthsLeft} months</span></div>
+        <div class="crow"><span class="cl">Paid off by</span><span style="color:var(--accent)">${amort.payoffDate}</span></div>
+        <div class="crow"><span class="cl">Total interest left</span><span style="color:var(--danger)">${fmt(amort.totalInterestLeft)}</span></div>
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="font-size:12px;font-weight:800;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Amortization schedule</div>
+        <div style="overflow-x:auto;border-radius:12px;border:1px solid var(--border)">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:500px">
+            <thead>
+              <tr style="background:var(--faint)">
+                <th style="padding:8px 10px;text-align:left;color:var(--muted);font-weight:700;white-space:nowrap">Month</th>
+                <th style="padding:8px 10px;text-align:right;color:var(--muted);font-weight:700;white-space:nowrap">Balance</th>
+                <th style="padding:8px 10px;text-align:right;color:var(--muted);font-weight:700;white-space:nowrap">Interest</th>
+                <th style="padding:8px 10px;text-align:right;color:var(--muted);font-weight:700;white-space:nowrap">Principal</th>
+                <th style="padding:8px 10px;text-align:right;color:var(--muted);font-weight:700;white-space:nowrap">Payment</th>
+                <th style="padding:8px 10px;text-align:right;color:var(--muted);font-weight:700;white-space:nowrap">Mo. Left</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${amort.schedule.map((row,i)=>`
+                <tr style="border-top:1px solid var(--border);background:${i%2===0?'#fff':'var(--faint)'}">
+                  <td style="padding:7px 10px;font-weight:600;white-space:nowrap">${row.label}</td>
+                  <td style="padding:7px 10px;text-align:right">${fmt(row.balance)}</td>
+                  <td style="padding:7px 10px;text-align:right;color:var(--danger)">${fmt(row.interest)}</td>
+                  <td style="padding:7px 10px;text-align:right;color:var(--accent)">${fmt(row.principal)}</td>
+                  <td style="padding:7px 10px;text-align:right;font-weight:700">${fmt(row.payment)}</td>
+                  <td style="padding:7px 10px;text-align:right;color:var(--muted)">${row.monthsLeft}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${amort.schedule.length < amort.monthsLeft ? `<div style="text-align:center;padding:10px;font-size:12px;color:var(--muted)">Showing first 24 months of ${amort.monthsLeft} total</div>` : ''}
+      </div>
+      ` : `<div style="background:var(--faint);border-radius:12px;padding:12px;font-size:13px;color:var(--muted);margin-bottom:12px">
+        <i class="ti ti-info-circle" style="font-size:14px;vertical-align:-2px;margin-right:6px"></i>
+        Add loan balance, interest rate & monthly payment to see full amortization schedule
+      </div>`}
     </div>`;
+  },
+
+  calcAmortization(p) {
+    const balance = parseNum(p.loan_balance);
+    const rate = parseNum(p.interest_rate);
+    const payment = parseNum(p.mortgage);
+    if (!balance || !rate || !payment) return null;
+
+    const monthlyRate = rate / 100 / 12;
+    const monthlyInterest = balance * monthlyRate;
+    const monthlyPrincipal = payment - monthlyInterest;
+    if (monthlyPrincipal <= 0) return null;
+
+    // How many months have passed (from start_date or 0)
+    const startDate = p.mortgage_start ? parseDate(p.mortgage_start) : null;
+    const now = new Date();
+    const monthsPassed = startDate
+      ? Math.max(0, (now.getFullYear()-startDate.getFullYear())*12+(now.getMonth()-startDate.getMonth()))
+      : 0;
+
+    // Calculate total paid so far by simulating from start
+    let totalPaid = 0, totalInterestPaid = 0;
+    let runBal = parseNum(p.purchase_price) > balance ? parseNum(p.loan_balance) + (monthsPassed * monthlyPrincipal) : balance;
+    // Simpler: use monthsPassed * payment
+    totalPaid = monthsPassed * payment;
+    totalInterestPaid = monthsPassed > 0 ? totalPaid - (runBal - balance) : 0;
+
+    // Months remaining from current balance
+    const monthsLeft = Math.ceil(Math.log(payment/(payment - balance*monthlyRate)) / Math.log(1+monthlyRate));
+
+    // Payoff date
+    const payoff = new Date(now.getFullYear(), now.getMonth() + monthsLeft, 1);
+    const payoffDate = payoff.toLocaleString('default',{month:'short',year:'numeric'});
+
+    // Total interest remaining
+    const totalInterestLeft = (payment * monthsLeft) - balance;
+
+    // Build schedule — first 24 months
+    const schedule = [];
+    let bal = balance;
+    const scheduleMonths = Math.min(24, monthsLeft);
+    for (let i = 0; i < scheduleMonths; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth()+i, 1);
+      const label = d.toLocaleString('default',{month:'short',year:'2-digit'});
+      const interest = bal * monthlyRate;
+      const principal = Math.min(payment - interest, bal);
+      const actualPayment = Math.min(payment, bal + interest);
+      bal = Math.max(0, bal - principal);
+      schedule.push({ label, balance: bal+principal, interest, principal, payment: actualPayment, monthsLeft: monthsLeft-i });
+    }
+
+    return { monthlyInterest, monthlyPrincipal, monthsLeft, payoffDate, totalInterestLeft: Math.max(0,totalInterestLeft), totalPaid, totalInterestPaid: Math.max(0,totalInterestPaid), schedule };
   },
 
   rolloverHTML() {
@@ -919,6 +1025,8 @@ window.App = {
     document.getElementById('prop-purchase').value=parseNum(p.purchase_price)||'';
     document.getElementById('prop-value').value=parseNum(p.current_value)||'';
     document.getElementById('prop-loan').value=parseNum(p.loan_balance)||'';
+    document.getElementById('prop-interest').value=p.interest_rate||'';
+    document.getElementById('prop-start').value=p.mortgage_start||'';
     this.openSheet('propSheet');
   },
 
@@ -933,6 +1041,8 @@ window.App = {
       purchase_price:parseNum(document.getElementById('prop-purchase').value),
       current_value:parseNum(document.getElementById('prop-value').value),
       loan_balance:parseNum(document.getElementById('prop-loan').value),
+      interest_rate:parseFloat(document.getElementById('prop-interest').value)||0,
+      mortgage_start:document.getElementById('prop-start').value||null,
     };
     if (!data.name) { this.showToast('Enter property name','error'); return; }
     if (this.state.editingPropId) {
