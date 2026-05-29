@@ -856,7 +856,8 @@ window.App = {
     const ltv=parseNum(p.current_value)>0?Math.round(parseNum(p.loan_balance)/parseNum(p.current_value)*100):0;
     const grossYield=parseNum(p.current_value)>0?(parseNum(p.rent_income)*12/parseNum(p.current_value)*100).toFixed(1):'—';
     const stCls=p.status==='Rented'?'pill-g':p.status==='Vacant'?'pill-r':'pill-o';
-    const amort = this.calcAmortization(p);
+    const extraPayment = (this._prepayments && this._prepayments[p.id]) || 0;
+    const amort = this.calcAmortization(p, extraPayment);
     const ltvColor = ltv>90?'var(--danger)':ltv>75?'var(--warning)':'var(--accent)';
 
     return `<div style="margin-bottom:18px">
@@ -889,14 +890,47 @@ window.App = {
         <h4>Mortgage breakdown</h4>
         <div class="crow"><span class="cl">Loan balance</span><span>${fmt(p.loan_balance)}</span></div>
         <div class="crow"><span class="cl">Interest rate</span><span>${p.interest_rate||0}% / year</span></div>
-        <div class="crow"><span class="cl">Monthly payment</span><span>${fmt(p.mortgage)}</span></div>
+        <div class="crow"><span class="cl">Normal payment</span><span>${fmt(p.mortgage)}/mo</span></div>
         <div class="crow"><span class="cl">↳ Interest portion</span><span style="color:var(--danger)">−${fmt(amort.monthlyInterest)}</span></div>
         <div class="crow"><span class="cl">↳ Principal portion</span><span style="color:var(--accent)">−${fmt(amort.monthlyPrincipal)}</span></div>
-        <div class="crow"><span class="cl">Total paid so far</span><span>${fmt(amort.totalPaid)}</span></div>
-        <div class="crow"><span class="cl">Interest paid so far</span><span style="color:var(--danger)">${fmt(amort.totalInterestPaid)}</span></div>
         <div class="crow"><span class="cl">Months remaining</span><span>${amort.monthsLeft} months</span></div>
         <div class="crow"><span class="cl">Paid off by</span><span style="color:var(--accent)">${amort.payoffDate}</span></div>
         <div class="crow"><span class="cl">Total interest left</span><span style="color:var(--danger)">${fmt(amort.totalInterestLeft)}</span></div>
+      </div>
+
+      <!-- PREPAYMENT CALCULATOR -->
+      <div style="background:#E6F1FB;border-radius:14px;padding:14px;margin-bottom:12px;border:1px solid #BDD5EE">
+        <div style="font-size:12px;font-weight:800;color:#185FA5;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px"><i class="ti ti-calculator" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>Extra payment simulator</div>
+        <div style="font-size:13px;color:#185FA5;margin-bottom:8px">What if you pay extra each month?</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+          <input type="number" id="prepay-${p.id}" value="${extraPayment||''}" placeholder="Extra kr./mo"
+            style="flex:1;border:1px solid #BDD5EE;border-radius:10px;padding:9px 12px;font-size:14px;background:#fff;font-family:inherit"
+            oninput="App.setPrepayment('${p.id}', this.value)">
+          <button onclick="App.setPrepayment('${p.id}', document.getElementById('prepay-${p.id}').value)"
+            style="background:#185FA5;color:#fff;border:none;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">
+            Calculate
+          </button>
+          ${extraPayment>0?`<button onclick="App.setPrepayment('${p.id}',0)" style="background:none;border:1px solid #BDD5EE;border-radius:10px;padding:9px 10px;cursor:pointer;color:#185FA5;font-size:13px">✕</button>`:''}
+        </div>
+        ${extraPayment>0 && amort.monthsSaved>0 ? `
+        <div style="background:#fff;border-radius:10px;padding:12px;border:1px solid #BDD5EE">
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid #E6F1FB">
+            <span style="color:#185FA5">New monthly payment</span>
+            <span style="font-weight:800;color:#185FA5">${fmt(parseNum(p.mortgage)+extraPayment)}/mo</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid #E6F1FB">
+            <span style="color:#185FA5">New payoff date</span>
+            <span style="font-weight:800;color:#185FA5">${amort.payoffDate}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid #E6F1FB">
+            <span style="color:var(--accent)">⚡ Months saved</span>
+            <span style="font-weight:800;color:var(--accent)">${amort.monthsSaved} months earlier!</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0">
+            <span style="color:var(--accent)">💰 Interest saved</span>
+            <span style="font-weight:800;color:var(--accent)">${fmt(amort.interestSaved)}</span>
+          </div>
+        </div>` : extraPayment>0 ? `<div style="font-size:12px;color:#185FA5">Enter a valid extra amount above your current payment</div>` : `<div style="font-size:12px;color:#185FA5;opacity:.7">Enter an amount above to see how much interest and time you save</div>`}
       </div>
 
       <div style="margin-bottom:12px">
@@ -910,6 +944,7 @@ window.App = {
                 <th style="padding:8px 10px;text-align:right;color:var(--muted);font-weight:700;white-space:nowrap">Interest</th>
                 <th style="padding:8px 10px;text-align:right;color:var(--muted);font-weight:700;white-space:nowrap">Principal</th>
                 <th style="padding:8px 10px;text-align:right;color:var(--muted);font-weight:700;white-space:nowrap">Payment</th>
+                ${extraPayment>0?`<th style="padding:8px 10px;text-align:right;color:#185FA5;font-weight:700;white-space:nowrap">Extra</th>`:''}
                 <th style="padding:8px 10px;text-align:right;color:var(--muted);font-weight:700;white-space:nowrap">Mo. Left</th>
               </tr>
             </thead>
@@ -921,6 +956,7 @@ window.App = {
                   <td style="padding:7px 10px;text-align:right;color:var(--danger)">${fmt(row.interest)}</td>
                   <td style="padding:7px 10px;text-align:right;color:var(--accent)">${fmt(row.principal)}</td>
                   <td style="padding:7px 10px;text-align:right;font-weight:700">${fmt(row.payment)}</td>
+                  ${extraPayment>0?`<td style="padding:7px 10px;text-align:right;color:#185FA5;font-weight:700">+${fmt(row.prepay)}</td>`:''}
                   <td style="padding:7px 10px;text-align:right;color:var(--muted)">${row.monthsLeft}</td>
                 </tr>`).join('')}
             </tbody>
@@ -935,10 +971,10 @@ window.App = {
     </div>`;
   },
 
-  calcAmortization(p) {
+  calcAmortization(p, extraPayment=0) {
     const balance = parseNum(p.loan_balance);
     const rate = parseNum(p.interest_rate);
-    const payment = parseNum(p.mortgage);
+    const payment = parseNum(p.mortgage) + extraPayment;
     if (!balance || !rate || !payment) return null;
 
     const monthlyRate = rate / 100 / 12;
@@ -946,29 +982,26 @@ window.App = {
     const monthlyPrincipal = payment - monthlyInterest;
     if (monthlyPrincipal <= 0) return null;
 
-    // How many months have passed (from start_date or 0)
     const startDate = p.mortgage_start ? parseDate(p.mortgage_start) : null;
     const now = new Date();
     const monthsPassed = startDate
       ? Math.max(0, (now.getFullYear()-startDate.getFullYear())*12+(now.getMonth()-startDate.getMonth()))
       : 0;
+    const totalPaid = monthsPassed * parseNum(p.mortgage);
 
-    // Calculate total paid so far by simulating from start
-    let totalPaid = 0, totalInterestPaid = 0;
-    let runBal = parseNum(p.purchase_price) > balance ? parseNum(p.loan_balance) + (monthsPassed * monthlyPrincipal) : balance;
-    // Simpler: use monthsPassed * payment
-    totalPaid = monthsPassed * payment;
-    totalInterestPaid = monthsPassed > 0 ? totalPaid - (runBal - balance) : 0;
+    // Months remaining with current payment (no extra)
+    const basePayment = parseNum(p.mortgage);
+    const monthsLeftBase = Math.ceil(Math.log(basePayment/(basePayment - balance*monthlyRate)) / Math.log(1+monthlyRate));
 
-    // Months remaining from current balance
+    // Months remaining with extra payment
     const monthsLeft = Math.ceil(Math.log(payment/(payment - balance*monthlyRate)) / Math.log(1+monthlyRate));
 
-    // Payoff date
     const payoff = new Date(now.getFullYear(), now.getMonth() + monthsLeft, 1);
     const payoffDate = payoff.toLocaleString('default',{month:'short',year:'numeric'});
-
-    // Total interest remaining
-    const totalInterestLeft = (payment * monthsLeft) - balance;
+    const totalInterestLeft = Math.max(0, (payment * monthsLeft) - balance);
+    const totalInterestBase = Math.max(0, (basePayment * monthsLeftBase) - balance);
+    const interestSaved = extraPayment > 0 ? Math.max(0, totalInterestBase - totalInterestLeft) : 0;
+    const monthsSaved = extraPayment > 0 ? Math.max(0, monthsLeftBase - monthsLeft) : 0;
 
     // Build schedule — first 24 months
     const schedule = [];
@@ -980,11 +1013,19 @@ window.App = {
       const interest = bal * monthlyRate;
       const principal = Math.min(payment - interest, bal);
       const actualPayment = Math.min(payment, bal + interest);
+      const prepay = i===0 ? extraPayment : extraPayment; // shown per row
       bal = Math.max(0, bal - principal);
-      schedule.push({ label, balance: bal+principal, interest, principal, payment: actualPayment, monthsLeft: monthsLeft-i });
+      schedule.push({ label, balance: bal+principal, interest, principal, payment: actualPayment, prepay: extraPayment, monthsLeft: monthsLeft-i });
     }
 
-    return { monthlyInterest, monthlyPrincipal, monthsLeft, payoffDate, totalInterestLeft: Math.max(0,totalInterestLeft), totalPaid, totalInterestPaid: Math.max(0,totalInterestPaid), schedule };
+    return { monthlyInterest, monthlyPrincipal: payment-monthlyInterest, monthsLeft, monthsLeftBase, payoffDate, totalInterestLeft, totalPaid, interestSaved, monthsSaved, schedule };
+  },
+
+  setPrepayment(propId, val) {
+    if (!this._prepayments) this._prepayments = {};
+    this._prepayments[propId] = parseNum(val);
+    // Re-render just this property's amort section
+    this.renderProperties();
   },
 
   rolloverHTML() {
