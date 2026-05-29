@@ -604,6 +604,9 @@ window.App = {
     const actualSaved=this.getTotalActualGoalsSaved();
     const free=income-expenses-actualSaved;
 
+    const activeGoals = this.state.goals.filter(g=>g.goal_type==='lifestyle'||(g.goal_type!=='lifestyle'&&!g.completed&&parseNum(g.saved)<parseNum(g.target)));
+    const completedGoals = this.state.goals.filter(g=>g.goal_type!=='lifestyle'&&(g.completed||parseNum(g.saved)>=parseNum(g.target)));
+
     document.getElementById('goals-content').innerHTML = `
       <div style="padding:18px">
         <div class="section-hd-row">
@@ -613,10 +616,42 @@ window.App = {
         <div style="background:var(--faint);border-radius:12px;padding:9px 14px;margin-bottom:14px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px">
           <i class="ti ti-arrows-up-down" style="font-size:14px"></i> Use ↑ ↓ buttons on each goal to reorder
         </div>
-        ${this.state.goals.length===0?`<div class="empty-state"><i class="ti ti-target"></i><div>No goals yet — add your first!</div></div>`:''}
+        ${activeGoals.length===0&&completedGoals.length===0?`<div class="empty-state"><i class="ti ti-target"></i><div>No goals yet — add your first!</div></div>`:''}
         <div id="goals-list">
-          ${this.state.goals.map((g,i)=>this.goalCardHTML(g,i,this.state.goals.length)).join('')}
+          ${activeGoals.map((g,i)=>this.goalCardHTML(g,i,activeGoals.length)).join('')}
         </div>
+
+        ${completedGoals.length>0?`
+        <div style="margin-top:20px">
+          <div style="font-size:12px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+            <i class="ti ti-trophy" style="font-size:14px;color:#EF9F27"></i> Achieved goals
+          </div>
+          ${completedGoals.map(g=>{
+            const pct=Math.min(100,Math.round(parseNum(g.saved)/parseNum(g.target)*100));
+            const achievedDate = g.completed_at ? new Date(g.completed_at).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : 'Date not recorded';
+            return `<div class="goal-card done" id="gcard-${g.id}" style="opacity:.85">
+              <div id="conf-${g.id}"></div>
+              <div style="display:flex;align-items:flex-start;gap:6px">
+                <div style="width:28px;flex-shrink:0"></div>
+                <div style="flex:1;min-width:0">
+                  <div class="g-hd">
+                    <div class="g-ico done-ico"><i class="ti ${g.icon||'ti-target'}"></i></div>
+                    <div style="flex:1;min-width:0">
+                      <div class="g-title">${g.title} <span class="done-badge"><i class="ti ti-check" style="font-size:10px"></i> Achieved!</span></div>
+                      <div class="g-sub">${fmt(g.saved)} saved · <span style="color:var(--accent);font-weight:700">🏆 ${achievedDate}</span></div>
+                    </div>
+                  </div>
+                  <div class="bar-bg"><div class="bar-fill" data-pct="${pct}" style="width:0%;background:var(--accent)"></div></div>
+                  <div class="g-actions">
+                    <div style="flex:1;font-size:12px;color:var(--muted);padding:4px 0">Goal completed — keep it as a record or delete it</div>
+                    <button class="btn-outline" style="font-size:12px;padding:7px 10px" onclick="App.deleteGoal('${g.id}')"><i class="ti ti-trash" style="font-size:14px;color:var(--danger)"></i></button>
+                  </div>
+                </div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>`:``}
+
         <div style="background:var(--faint);border-radius:14px;padding:14px;border:1px solid var(--border);margin-top:8px">
           <div style="font-size:12px;font-weight:800;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.6px">Monthly money flow</div>
           <div class="summary-row"><span class="sr-lbl">Salary (Jovannie + Melody)</span><span class="sr-val" style="color:var(--accent)">+${fmt(this.getTotalSalary())}/mo</span></div>
@@ -634,7 +669,6 @@ window.App = {
             <span class="sr-val" style="font-size:16px;color:${free>=0?'var(--accent)':'var(--danger)'}">${fmt(free)}</span>
           </div>
         </div>
-      </div>`;
     setTimeout(()=>{ this.animateBars(); this.checkConfetti(); },300);
   },
 
@@ -780,8 +814,9 @@ window.App = {
     } else {
       const newSaved=parseNum(g.saved)+amount;
       const completed=newSaved>=parseNum(g.target);
-      await DB.update('goals',id,{saved:newSaved,completed});
-      g.saved=newSaved; g.completed=completed;
+      const completedAt = completed ? new Date().toISOString().split('T')[0] : null;
+      await DB.update('goals',id,{saved:newSaved,completed, ...(completedAt?{completed_at:completedAt}:{})});
+      g.saved=newSaved; g.completed=completed; if(completedAt) g.completed_at=completedAt;
       if (completed) { setTimeout(()=>this.launchConfetti(id),400); this.showToast('🎉 Goal reached!','success');
         this.renderGoals(); this.renderDashboard(); return; }
     }
@@ -904,8 +939,7 @@ window.App = {
         <div style="font-size:13px;color:#185FA5;margin-bottom:8px">What if you pay extra each month?</div>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
           <input type="number" id="prepay-${p.id}" value="${extraPayment||''}" placeholder="Extra kr./mo"
-            style="flex:1;border:1px solid #BDD5EE;border-radius:10px;padding:9px 12px;font-size:14px;background:#fff;font-family:inherit"
-            oninput="App.setPrepayment('${p.id}', this.value)">
+            style="flex:1;border:1px solid #BDD5EE;border-radius:10px;padding:9px 12px;font-size:14px;background:#fff;font-family:inherit">
           <button onclick="App.setPrepayment('${p.id}', document.getElementById('prepay-${p.id}').value)"
             style="background:#185FA5;color:#fff;border:none;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">
             Calculate
@@ -930,7 +964,7 @@ window.App = {
             <span style="color:var(--accent)">💰 Interest saved</span>
             <span style="font-weight:800;color:var(--accent)">${fmt(amort.interestSaved)}</span>
           </div>
-        </div>` : extraPayment>0 ? `<div style="font-size:12px;color:#185FA5">Enter a valid extra amount above your current payment</div>` : `<div style="font-size:12px;color:#185FA5;opacity:.7">Enter an amount above to see how much interest and time you save</div>`}
+        </div>` : extraPayment>0 ? `<div style="font-size:12px;color:#185FA5">Payment too low to make a difference — try a higher amount</div>` : `<div style="font-size:12px;color:#185FA5;opacity:.7">Type an amount then tap Calculate to see savings</div>`}
       </div>
 
       <div style="margin-bottom:12px">
