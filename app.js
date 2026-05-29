@@ -55,6 +55,12 @@ window.App={
       DB.getAll('tenants'),DB.getAll('maintenance_logs'),DB.getAll('budgets'),
     ]);
     this.state.profiles=profiles||[];
+    // Always ensure Jovannie=index0, Melody=index1 regardless of DB order
+    this.state.profiles.sort((a,b)=>{
+      const aJ=a.name.toLowerCase().includes('jovannie');
+      const bJ=b.name.toLowerCase().includes('jovannie');
+      if(aJ&&!bJ)return -1; if(!aJ&&bJ)return 1; return 0;
+    });
     this.state.properties=properties||[];
     this.state.expenses=expenses||[];
     this.state.goals=(goals||[]).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
@@ -101,7 +107,12 @@ window.App={
   getTotalEquity(){return this.state.properties.reduce((s,p)=>s+parseNum(p.current_value)-parseNum(p.loan_balance),0);},
   getTotalPortfolioValue(){return this.state.properties.reduce((s,p)=>s+parseNum(p.current_value),0);},
   getTotalLoanBalance(){return this.state.properties.reduce((s,p)=>s+parseNum(p.loan_balance),0);},
-  getTotalActualGoalsSaved(){return this.state.goals.filter(g=>g.goal_type!=='lifestyle').reduce((s,g)=>s+parseNum(g.saved),0);},
+  getTotalActualGoalsSaved(){
+    return this.state.goals.reduce((s,g)=>{
+      if(g.goal_type==='lifestyle') return s+parseNum(g.lifestyle_balance);
+      return s+parseNum(g.saved);
+    },0);
+  },
   getGoalsAllocated(){return this.state.goals.filter(g=>g.goal_type!=='lifestyle').reduce((s,g)=>s+parseNum(g.monthly_allocation),0);},
   getUnassigned(){return this.getTotalIncome()-this.getTotalExpenses()-this.getTotalActualGoalsSaved();},
   getFreeCash(){return this.getUnassigned();},
@@ -468,7 +479,7 @@ window.App={
           ${this.getThisMonthSideHustle()>0?`<div class="summary-row"><span class="sr-lbl">Side hustle (this month)</span><span class="sr-val" style="color:var(--accent)">+${fmt(this.getThisMonthSideHustle())}</span></div>`:''}
           <div class="summary-row" style="padding-bottom:8px;margin-bottom:4px;border-bottom:1px solid var(--border2)"><span class="sr-lbl" style="font-weight:800">= Total income</span><span class="sr-val" style="font-weight:800">${fmt(income)}</span></div>
           <div class="summary-row"><span class="sr-lbl">− Expenses (actual spending)</span><span class="sr-val" style="color:var(--danger)">−${fmt(expenses)}</span></div>
-          <div class="summary-row"><span class="sr-lbl">− Money in goals (total saved)</span><span class="sr-val" style="color:var(--danger)">−${fmt(actualSaved)}</span></div>
+          <div class="summary-row"><span class="sr-lbl">− Money in goals (savings + lifestyle)</span><span class="sr-val" style="color:var(--danger)">−${fmt(actualSaved)}</span></div>
           <div style="background:var(--faint);border-radius:8px;padding:6px 10px;margin:6px 0;font-size:11px;color:var(--muted)"><i class="ti ti-info-circle" style="font-size:12px;vertical-align:-1px;margin-right:4px"></i>Planned monthly allocation: ${fmt(allocated)}/mo</div>
           <div class="summary-row" style="border-top:1.5px solid var(--border2);padding-top:8px;margin-top:4px">
             <span class="sr-lbl" style="font-weight:800;color:var(--text)">= Unassigned cash</span>
