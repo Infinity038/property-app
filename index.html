@@ -16,10 +16,7 @@
 <div class="phone">
   <div class="status-bar">
     <span id="clock">9:41</span>
-    <span style="display:flex;align-items:center;gap:4px">
-      <span id="sync-dot" class="sync-dot"></span>
-      <span id="sync-label" style="font-size:10px;color:var(--muted)">Synced</span>
-    </span>
+    <span style="display:flex;align-items:center;gap:4px"><span id="sync-dot" class="sync-dot"></span><span id="sync-label" style="font-size:10px;color:var(--muted)">Synced</span></span>
     <span><i class="ti ti-wifi" style="font-size:13px"></i></span>
   </div>
 
@@ -28,6 +25,7 @@
   <div class="page screen" id="page-exp"><div id="expenses-content"></div></div>
   <div class="page screen" id="page-goals"><div id="goals-content"></div></div>
   <div class="page screen" id="page-props"><div id="props-content"></div></div>
+  <div class="page screen" id="page-reports"><div id="reports-content"></div></div>
 
   <div class="bottom-nav">
     <button class="nav-btn active" id="nav-dash" onclick="App.switchPage('dash')"><i class="ti ti-layout-dashboard"></i><span>Dashboard</span></button>
@@ -35,36 +33,23 @@
     <button class="nav-btn" id="nav-exp" onclick="App.switchPage('exp')"><i class="ti ti-receipt"></i><span>Expenses</span></button>
     <button class="nav-btn" id="nav-goals" onclick="App.switchPage('goals')"><i class="ti ti-target"></i><span>Goals</span></button>
     <button class="nav-btn" id="nav-props" onclick="App.switchPage('props')"><i class="ti ti-building"></i><span>Properties</span></button>
+    <button class="nav-btn" id="nav-reports" onclick="App.switchPage('reports')"><i class="ti ti-chart-pie"></i><span>Reports</span></button>
   </div>
 </div>
 
-<!-- ── EXPENSE SHEET ── -->
+<!-- EXPENSE SHEET -->
 <div class="overlay" id="scanSheet">
   <div class="sheet">
-    <div class="sheet-hd">
-      <h4>Add expense</h4>
-      <button class="sheet-close" onclick="App.closeSheet('scanSheet')"><i class="ti ti-x"></i></button>
-    </div>
+    <div class="sheet-hd"><h4>Add expense</h4><button class="sheet-close" onclick="App.closeSheet('scanSheet')"><i class="ti ti-x"></i></button></div>
     <img id="scan-preview" style="display:none;width:100%;max-height:150px;object-fit:contain;border-radius:12px;margin-bottom:12px;border:1px solid var(--border)" alt="Receipt">
     <div class="field"><label>Expense name</label><input type="text" id="scan-name" placeholder="e.g. Netto groceries"></div>
     <div class="field"><label>Amount (kr.)</label><input type="number" id="scan-amount" placeholder="0"></div>
     <div class="field"><label>Date</label><input type="date" id="scan-date"></div>
-
-    <!-- Recurring toggle -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px 12px;background:var(--faint);border-radius:10px">
       <input type="checkbox" id="exp-recurring-cb" style="width:18px;height:18px;accent-color:var(--accent)" onchange="document.getElementById('exp-recurrence-row').style.display=this.checked?'block':'none'">
       <label for="exp-recurring-cb" style="font-size:13px;font-weight:700;cursor:pointer"><i class="ti ti-refresh" style="font-size:14px;vertical-align:-2px;margin-right:4px;color:var(--accent)"></i> Recurring expense</label>
     </div>
-    <div id="exp-recurrence-row" style="display:none" class="field">
-      <label>Repeats</label>
-      <select id="exp-recurrence">
-        <option value="monthly">Monthly</option>
-        <option value="bi-weekly">Bi-weekly</option>
-        <option value="weekly">Weekly</option>
-        <option value="yearly">Yearly</option>
-      </select>
-    </div>
-
+    <div id="exp-recurrence-row" style="display:none" class="field"><label>Repeats</label><select id="exp-recurrence"><option value="monthly">Monthly</option><option value="bi-weekly">Bi-weekly</option><option value="weekly">Weekly</option><option value="yearly">Yearly</option></select></div>
     <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Category</div>
     <div class="cat-grid">
       <button class="cat-btn" data-cat="Housing" onclick="App.selectCat('Housing')"><i class="ti ti-home-dollar" style="font-size:15px"></i> Housing</button>
@@ -87,57 +72,37 @@
   </div>
 </div>
 
-<!-- ── GOAL SHEET ── -->
+<!-- GOAL SHEET -->
 <div class="overlay" id="goalSheet">
   <div class="sheet">
-    <div class="sheet-hd">
-      <h4 id="goal-sheet-title">New goal</h4>
-      <button class="sheet-close" onclick="App.closeSheet('goalSheet')"><i class="ti ti-x"></i></button>
-    </div>
+    <div class="sheet-hd"><h4 id="goal-sheet-title">New goal</h4><button class="sheet-close" onclick="App.closeSheet('goalSheet')"><i class="ti ti-x"></i></button></div>
     <div class="field"><label>Goal name</label><input type="text" id="goal-title-in" placeholder="e.g. Emergency fund"></div>
-    <div class="field">
-      <label>Goal type</label>
-      <select id="goal-type-sel" onchange="App.toggleGoalType(this.value)">
-        <option value="savings">Savings goal (fixed target)</option>
-        <option value="lifestyle">Lifestyle fund (flexible spend)</option>
-      </select>
-    </div>
-
-    <!-- Savings fields -->
+    <div class="field"><label>Goal type</label><select id="goal-type-sel" onchange="App.toggleGoalType(this.value)"><option value="savings">Savings goal (fixed target)</option><option value="lifestyle">Lifestyle fund (flexible spend)</option></select></div>
     <div id="goal-savings-fields">
       <div class="field"><label>Target amount (kr.)</label><input type="number" id="goal-target-in" placeholder="0"></div>
       <div class="field"><label>Already saved (kr.)</label><input type="number" id="goal-saved-in" placeholder="0"></div>
       <div class="field"><label>Monthly allocation (kr.)</label><input type="number" id="goal-alloc-in" placeholder="0"></div>
     </div>
-
-    <!-- Lifestyle fields -->
     <div id="goal-lifestyle-fields" style="display:none">
-      <div style="background:#E6F1FB;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#185FA5">
-        <i class="ti ti-info-circle" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>
-        A lifestyle fund has a maximum cap. You can freely top up and withdraw. Great for "fun money" or a shared spending budget.
-      </div>
+      <div style="background:#E6F1FB;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#185FA5"><i class="ti ti-info-circle" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>A lifestyle fund lets you freely top up and withdraw. Great for fun money or shared spending budgets.</div>
       <div class="field"><label>Monthly spending cap (kr.)</label><input type="number" id="goal-cap-in" placeholder="e.g. 5000"></div>
       <div class="field"><label>Current balance (kr.)</label><input type="number" id="goal-balance-in" placeholder="0"></div>
     </div>
-
-    <div class="field">
-      <label>Icon</label>
-      <select id="goal-icon-sel">
-        <option value="ti-shield-check">🛡 Emergency fund</option>
-        <option value="ti-building-bank">🏦 Property deposit</option>
-        <option value="ti-hammer">🔨 Renovation</option>
-        <option value="ti-plane">✈️ Vacation</option>
-        <option value="ti-car">🚗 Car</option>
-        <option value="ti-heart">❤️ Family</option>
-        <option value="ti-piggy-bank">🐷 Savings</option>
-        <option value="ti-cash">💵 Cash reserve</option>
-        <option value="ti-target">🎯 Goal</option>
-        <option value="ti-star">⭐ Dream</option>
-        <option value="ti-shopping-bag">🛍 Lifestyle fund</option>
-        <option value="ti-mood-happy">😊 Fun money</option>
-        <option value="ti-glass-full">🥂 Entertainment</option>
-      </select>
-    </div>
+    <div class="field"><label>Icon</label><select id="goal-icon-sel">
+      <option value="ti-shield-check">🛡 Emergency fund</option>
+      <option value="ti-building-bank">🏦 Property deposit</option>
+      <option value="ti-hammer">🔨 Renovation</option>
+      <option value="ti-plane">✈️ Vacation</option>
+      <option value="ti-car">🚗 Car</option>
+      <option value="ti-heart">❤️ Family</option>
+      <option value="ti-piggy-bank">🐷 Savings</option>
+      <option value="ti-cash">💵 Cash reserve</option>
+      <option value="ti-target">🎯 Goal</option>
+      <option value="ti-star">⭐ Dream</option>
+      <option value="ti-shopping-bag">🛍 Lifestyle fund</option>
+      <option value="ti-mood-happy">😊 Fun money</option>
+      <option value="ti-glass-full">🥂 Entertainment</option>
+    </select></div>
     <div class="sheet-actions">
       <button class="btn-outline" onclick="App.closeSheet('goalSheet')">Cancel</button>
       <button class="btn-primary" onclick="App.saveGoal()" style="margin:0;flex:1"><i class="ti ti-device-floppy"></i> Save goal</button>
@@ -145,13 +110,10 @@
   </div>
 </div>
 
-<!-- ── SIDE HUSTLE / INCOME SHEET ── -->
+<!-- SIDE HUSTLE SHEET -->
 <div class="overlay" id="incomeSheet">
   <div class="sheet">
-    <div class="sheet-hd">
-      <h4>Log income</h4>
-      <button class="sheet-close" onclick="App.closeSheet('incomeSheet')"><i class="ti ti-x"></i></button>
-    </div>
+    <div class="sheet-hd"><h4>Log income</h4><button class="sheet-close" onclick="App.closeSheet('incomeSheet')"><i class="ti ti-x"></i></button></div>
     <div class="field"><label>Description</label><input type="text" id="income-desc" placeholder="e.g. Freelance project, eBay sale..."></div>
     <div class="field"><label>Amount (kr.)</label><input type="number" id="income-amount" placeholder="0"></div>
     <div class="field"><label>Date received</label><input type="date" id="income-date"></div>
@@ -159,14 +121,7 @@
       <input type="checkbox" id="income-recurring" style="width:18px;height:18px;accent-color:var(--accent)" onchange="document.getElementById('income-recurrence-row').style.display=this.checked?'block':'none'">
       <label for="income-recurring" style="font-size:13px;font-weight:700;cursor:pointer"><i class="ti ti-refresh" style="font-size:14px;vertical-align:-2px;margin-right:4px;color:var(--accent)"></i> Recurring income</label>
     </div>
-    <div id="income-recurrence-row" style="display:none" class="field">
-      <label>Frequency</label>
-      <select id="income-recurrence">
-        <option value="bi-weekly">Every 2 weeks</option>
-        <option value="monthly">Monthly</option>
-        <option value="weekly">Weekly</option>
-      </select>
-    </div>
+    <div id="income-recurrence-row" style="display:none" class="field"><label>Frequency</label><select id="income-recurrence"><option value="bi-weekly">Every 2 weeks</option><option value="monthly">Monthly</option><option value="weekly">Weekly</option></select></div>
     <div class="sheet-actions">
       <button class="btn-outline" onclick="App.closeSheet('incomeSheet')">Cancel</button>
       <button class="btn-primary" onclick="App.saveIncome()" style="margin:0;flex:1"><i class="ti ti-check"></i> Log income</button>
@@ -174,18 +129,13 @@
   </div>
 </div>
 
-<!-- ── PROPERTY SHEET ── -->
+<!-- PROPERTY SHEET -->
 <div class="overlay" id="propSheet">
   <div class="sheet">
-    <div class="sheet-hd">
-      <h4 id="prop-sheet-title">Add property</h4>
-      <button class="sheet-close" onclick="App.closeSheet('propSheet')"><i class="ti ti-x"></i></button>
-    </div>
+    <div class="sheet-hd"><h4 id="prop-sheet-title">Add property</h4><button class="sheet-close" onclick="App.closeSheet('propSheet')"><i class="ti ti-x"></i></button></div>
     <div class="field"><label>Property name</label><input type="text" id="prop-name" placeholder="e.g. Maple Street Duplex"></div>
     <div class="field"><label>Address</label><input type="text" id="prop-addr" placeholder="Street, city"></div>
-    <div class="field"><label>Status</label>
-      <select id="prop-status"><option>Rented</option><option>Vacant</option><option>Under renovation</option><option>Primary residence</option></select>
-    </div>
+    <div class="field"><label>Status</label><select id="prop-status"><option>Rented</option><option>Vacant</option><option>Under renovation</option><option>Primary residence</option></select></div>
     <div class="divider"></div>
     <div class="field"><label>Monthly rent income (kr.)</label><input type="number" id="prop-rent" placeholder="0"></div>
     <div class="field"><label>Monthly mortgage (kr.)</label><input type="number" id="prop-mortgage" placeholder="0"></div>
@@ -203,8 +153,78 @@
   </div>
 </div>
 
+<!-- TENANT SHEET -->
+<div class="overlay" id="tenantSheet">
+  <div class="sheet">
+    <div class="sheet-hd"><h4 id="tenant-sheet-title">Add tenant</h4><button class="sheet-close" onclick="App.closeSheet('tenantSheet')"><i class="ti ti-x"></i></button></div>
+    <div class="field"><label>Tenant name</label><input type="text" id="tenant-name" placeholder="Full name"></div>
+    <div class="field"><label>Property</label><select id="tenant-prop"><option value="">Select property...</option></select></div>
+    <div class="field"><label>Status</label><select id="tenant-status"><option value="Active">Active</option><option value="Former">Former</option><option value="Pending">Pending</option></select></div>
+    <div class="field"><label>Email</label><input type="email" id="tenant-email" placeholder="tenant@email.com"></div>
+    <div class="field"><label>Phone</label><input type="tel" id="tenant-phone" placeholder="+45 xx xx xx xx"></div>
+    <div class="divider"></div>
+    <div class="field"><label>Monthly rent (kr.)</label><input type="number" id="tenant-rent" placeholder="0"></div>
+    <div class="field"><label>Deposit held (kr.)</label><input type="number" id="tenant-deposit" placeholder="0"></div>
+    <div class="field"><label>Lease start</label><input type="date" id="tenant-lease-start"></div>
+    <div class="field"><label>Lease end</label><input type="date" id="tenant-lease-end"></div>
+    <div class="field"><label>Notes</label><textarea id="tenant-notes" placeholder="Any notes about the tenant..."></textarea></div>
+    <div class="sheet-actions">
+      <button class="btn-outline" onclick="App.closeSheet('tenantSheet')">Cancel</button>
+      <button class="btn-primary" onclick="App.saveTenant()" style="margin:0;flex:1"><i class="ti ti-device-floppy"></i> Save tenant</button>
+    </div>
+  </div>
+</div>
+
+<!-- MAINTENANCE SHEET -->
+<div class="overlay" id="maintSheet">
+  <div class="sheet">
+    <div class="sheet-hd"><h4 id="maint-sheet-title">Log maintenance</h4><button class="sheet-close" onclick="App.closeSheet('maintSheet')"><i class="ti ti-x"></i></button></div>
+    <div class="field"><label>Title</label><input type="text" id="maint-title" placeholder="e.g. Fix leaking roof"></div>
+    <div class="field"><label>Property</label><select id="maint-prop"><option value="">Select property...</option></select></div>
+    <div class="field"><label>Date</label><input type="date" id="maint-date"></div>
+    <div class="field"><label>Cost (kr.)</label><input type="number" id="maint-cost" placeholder="0"></div>
+    <div class="field"><label>Status</label><select id="maint-status"><option value="Completed">Completed</option><option value="Pending">Pending</option><option value="In progress">In progress</option></select></div>
+    <div class="field"><label>Description</label><textarea id="maint-desc" placeholder="Details about the maintenance..."></textarea></div>
+    <div style="background:var(--accent-light);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:var(--accent-dark)"><i class="ti ti-info-circle" style="font-size:13px;vertical-align:-1px;margin-right:4px"></i>Cost will be auto-added as a Maintenance expense</div>
+    <div class="sheet-actions">
+      <button class="btn-outline" onclick="App.closeSheet('maintSheet')">Cancel</button>
+      <button class="btn-primary" onclick="App.saveMaintenance()" style="margin:0;flex:1"><i class="ti ti-device-floppy"></i> Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- BUDGET SHEET -->
+<div class="overlay" id="budgetSheet">
+  <div class="sheet">
+    <div class="sheet-hd"><h4>Set monthly budgets</h4><button class="sheet-close" onclick="App.closeSheet('budgetSheet')"><i class="ti ti-x"></i></button></div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Leave blank for no limit. App will alert you when you reach 80% and 100%.</div>
+    <div id="budget-cats"></div>
+    <div class="sheet-actions" style="margin-top:12px">
+      <button class="btn-outline" onclick="App.closeSheet('budgetSheet')">Cancel</button>
+      <button class="btn-primary" onclick="App.saveBudgets()" style="margin:0;flex:1"><i class="ti ti-device-floppy"></i> Save budgets</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 <script src="/db.js"></script>
 <script src="/app.js"></script>
+<script>
+// Populate property dropdowns when sheets open
+document.addEventListener('click', e => {
+  if(e.target.closest('[onclick*="openAddTenant"],[onclick*="openEditTenant"]')) {
+    setTimeout(()=>{
+      const sel=document.getElementById('tenant-prop');
+      if(sel) { sel.innerHTML='<option value="">Select property...</option>'+App.state.properties.map(p=>`<option value="${p.id}">${p.name}</option>`).join(''); }
+    },50);
+  }
+  if(e.target.closest('[onclick*="openAddMaintenance"],[onclick*="openEditMaintenance"]')) {
+    setTimeout(()=>{
+      const sel=document.getElementById('maint-prop');
+      if(sel) { sel.innerHTML='<option value="">Select property...</option>'+App.state.properties.map(p=>`<option value="${p.id}">${p.name}</option>`).join(''); }
+    },50);
+  }
+});
+</script>
 </body>
 </html>
