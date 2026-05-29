@@ -17,19 +17,19 @@ const CAT_COLORS = {
   Housing:'#FAEEDA', Food:'#E6F1FB', Transport:'#EAF3DE',
   Utilities:'#EEEDFE', Entertainment:'#FBEAF0', Healthcare:'#E1F5EE',
   Maintenance:'#E1F5EE', Renovation:'#FAEEDA', Business:'#E6F1FB',
-  Personal:'#F4C0D1', Other:'#f1efe8'
+  Personal:'#F4C0D1', 'Mortgage Prepayment':'#D6E9F8', Other:'#f1efe8'
 };
 const CAT_ICONS = {
   Housing:'ti-home-dollar', Food:'ti-shopping-cart', Transport:'ti-car',
   Utilities:'ti-bolt', Entertainment:'ti-device-tv', Healthcare:'ti-heart-rate-monitor',
   Maintenance:'ti-tools', Renovation:'ti-hammer', Business:'ti-briefcase',
-  Personal:'ti-user', Other:'ti-dots'
+  Personal:'ti-user', 'Mortgage Prepayment':'ti-coin', Other:'ti-dots'
 };
 const CAT_TEXT = {
   Housing:'#854F0B', Food:'#185FA5', Transport:'#3B6D11',
   Utilities:'#534AB7', Entertainment:'#993556', Healthcare:'#0F6E56',
   Maintenance:'#0F6E56', Renovation:'#854F0B', Business:'#185FA5',
-  Personal:'#993556', Other:'#6b6b6b'
+  Personal:'#993556', 'Mortgage Prepayment':'#185FA5', Other:'#6b6b6b'
 };
 
 window.App = {
