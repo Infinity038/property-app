@@ -193,6 +193,8 @@
     <div class="field"><label>Purchase price (kr.)</label><input type="number" id="prop-purchase" placeholder="0"></div>
     <div class="field"><label>Current market value (kr.)</label><input type="number" id="prop-value" placeholder="0"></div>
     <div class="field"><label>Outstanding loan balance (kr.)</label><input type="number" id="prop-loan" placeholder="0"></div>
+    <div class="field"><label>Interest rate (% per year)</label><input type="number" id="prop-interest" placeholder="e.g. 5" step="0.1"></div>
+    <div class="field"><label>Mortgage start date</label><input type="date" id="prop-start"></div>
     <div class="sheet-actions">
       <button class="btn-outline" onclick="App.closeSheet('propSheet')">Cancel</button>
       <button class="btn-primary" onclick="App.saveProp()" style="margin:0;flex:1"><i class="ti ti-device-floppy"></i> Save property</button>
