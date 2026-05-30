@@ -13,8 +13,41 @@
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<style>
+#login-screen{position:fixed;inset:0;background:linear-gradient(140deg,#0a5c46,#1D9E75);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;padding:24px}
+.login-card{background:#fff;border-radius:24px;padding:28px 24px;width:100%;max-width:360px;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.login-logo{width:60px;height:60px;background:var(--accent-light,#E1F5EE);border-radius:16px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px}
+.login-card h2{text-align:center;font-size:22px;font-weight:800;margin-bottom:4px}
+.login-card p{text-align:center;font-size:13px;color:#6b6b6b;margin-bottom:24px}
+.login-field{margin-bottom:14px}
+.login-field label{display:block;font-size:12px;font-weight:700;color:#6b6b6b;margin-bottom:5px}
+.login-field input{width:100%;border:1px solid #e0ddd5;border-radius:12px;padding:12px 14px;font-size:15px;font-family:inherit;transition:border-color .2s}
+.login-field input:focus{outline:none;border-color:#1D9E75}
+.login-btn{width:100%;border:none;background:#1D9E75;color:#fff;border-radius:12px;padding:14px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;margin-top:8px;transition:opacity .2s}
+.login-btn:hover{opacity:.9}
+.login-btn:disabled{opacity:.6;pointer-events:none}
+.login-err{background:#FCEBEB;color:#A32D2D;border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:12px;display:none}
+.login-switch{text-align:center;font-size:13px;color:#6b6b6b;margin-top:14px}
+.login-switch a{color:#1D9E75;font-weight:700;cursor:pointer;text-decoration:none}
+.user-bar{background:rgba(255,255,255,.15);border-radius:20px;padding:4px 10px 4px 6px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.user-bar:hover{background:rgba(255,255,255,.25)}
+</style>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">🏠</div>
+    <h2>Ducay Portfolio</h2>
+    <p id="login-subtitle">Sign in to your account</p>
+    <div class="login-err" id="login-err"></div>
+    <div class="login-field"><label>Email</label><input type="email" id="login-email" placeholder="you@email.com" autocomplete="email"></div>
+    <div class="login-field"><label>Password</label><input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')Auth.submit()"></div>
+    <button class="login-btn" id="login-btn" onclick="Auth.submit()">Sign in</button>
+    <div class="login-switch" id="login-switch">Don't have an account? <a onclick="Auth.toggleMode()">Sign up</a></div>
+  </div>
+</div>
+
 <div class="phone">
-  <div class="status-bar">
     <span id="clock">9:41</span>
     <span style="display:flex;align-items:center;gap:4px"><span id="sync-dot" class="sync-dot"></span><span id="sync-label" style="font-size:10px;color:var(--muted)">Synced</span></span>
     <span><i class="ti ti-wifi" style="font-size:13px"></i></span>
@@ -62,6 +95,7 @@
       <button class="cat-btn" data-cat="Entertainment" onclick="App.selectCat('Entertainment')"><i class="ti ti-device-tv" style="font-size:15px"></i> Entertainment</button>
       <button class="cat-btn" data-cat="Business" onclick="App.selectCat('Business')"><i class="ti ti-briefcase" style="font-size:15px"></i> Business</button>
       <button class="cat-btn" data-cat="Personal" onclick="App.selectCat('Personal')"><i class="ti ti-user" style="font-size:15px"></i> Personal</button>
+      <button class="cat-btn" data-cat="Lifestyle" onclick="App.selectCat('Lifestyle')"><i class="ti ti-mood-happy" style="font-size:15px"></i> Lifestyle</button>
       <button class="cat-btn" data-cat="Mortgage Prepayment" onclick="App.selectCat('Mortgage Prepayment')"><i class="ti ti-coin" style="font-size:15px"></i> Mortgage Prepay</button>
       <button class="cat-btn" data-cat="Other" onclick="App.selectCat('Other')"><i class="ti ti-dots" style="font-size:15px"></i> Other</button>
     </div>
@@ -208,6 +242,67 @@
 
 <div id="toast" class="toast"></div>
 <script src="/db.js"></script>
+<script>
+// ── AUTH CONTROLLER ────────────────────────────────────────────
+const Auth = {
+  mode: 'signin',
+  async init() {
+    // Try restore session
+    const session = DB.getSession();
+    if (session) {
+      // Verify it's still valid by refreshing
+      const refreshed = await DB.refreshSession();
+      if (refreshed) { this.show(false); return; }
+    }
+    this.show(true);
+  },
+  show(showLogin) {
+    const ls = document.getElementById('login-screen');
+    if (showLogin) { ls.style.display = 'flex'; }
+    else { ls.style.display = 'none'; if (window.App) App.init(); }
+  },
+  toggleMode() {
+    this.mode = this.mode === 'signin' ? 'signup' : 'signin';
+    document.getElementById('login-btn').textContent = this.mode === 'signin' ? 'Sign in' : 'Create account';
+    document.getElementById('login-subtitle').textContent = this.mode === 'signin' ? 'Sign in to your account' : 'Create your account';
+    document.getElementById('login-switch').innerHTML = this.mode === 'signin'
+      ? `Don't have an account? <a onclick="Auth.toggleMode()">Sign up</a>`
+      : `Already have an account? <a onclick="Auth.toggleMode()">Sign in</a>`;
+    document.getElementById('login-err').style.display = 'none';
+  },
+  async submit() {
+    const email = document.getElementById('login-email').value.trim();
+    const pass = document.getElementById('login-pass').value;
+    const btn = document.getElementById('login-btn');
+    const err = document.getElementById('login-err');
+    if (!email || !pass) { err.textContent = 'Enter email and password'; err.style.display = 'block'; return; }
+    btn.disabled = true; btn.textContent = this.mode === 'signin' ? 'Signing in...' : 'Creating account...';
+    err.style.display = 'none';
+    try {
+      if (this.mode === 'signin') {
+        await DB.signIn(email, pass);
+        this.show(false);
+      } else {
+        await DB.signUp(email, pass);
+        err.style.display = 'block';
+        err.style.background = '#E1F5EE'; err.style.color = '#0F6E56';
+        err.textContent = '✓ Account created! Check your email to confirm, then sign in.';
+        this.mode = 'signin'; this.toggleMode();
+      }
+    } catch(e) {
+      err.textContent = e.message; err.style.display = 'block';
+    }
+    btn.disabled = false; btn.textContent = this.mode === 'signin' ? 'Sign in' : 'Create account';
+  },
+  async signOut() {
+    if (!confirm('Sign out?')) return;
+    await DB.signOut();
+    window.location.reload();
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => Auth.init());
+</script>
 <script src="/app.js"></script>
 <script>
 // Populate property dropdowns when sheets open

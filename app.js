@@ -22,6 +22,7 @@ const CATS={
   Business:{color:'#E6F1FB',icon:'ti-briefcase',text:'#185FA5'},
   Personal:{color:'#F4C0D1',icon:'ti-user',text:'#993556'},
   'Mortgage Prepayment':{color:'#D6E9F8',icon:'ti-coin',text:'#185FA5'},
+  Lifestyle:{color:'#F0E6FE',icon:'ti-mood-happy',text:'#7C3AED'},
   Other:{color:'#f1efe8',icon:'ti-dots',text:'#6b6b6b'},
 };
 
@@ -182,7 +183,10 @@ window.App={
       <div class="dash-hd">
         <div class="dh-top">
           <div><div class="dh-greeting">Good ${this.timeOfDay()},</div><div class="dh-names">${n1} & ${n2} 👋</div></div>
-          <div style="display:flex"><div class="avatar">${i1}</div><div class="avatar" style="margin-left:-8px">${i2}</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="display:flex"><div class="avatar">${i1}</div><div class="avatar" style="margin-left:-8px">${i2}</div></div>
+            <button onclick="Auth.signOut()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:5px 10px;color:#fff;font-size:11px;cursor:pointer;font-family:inherit;font-weight:700;white-space:nowrap"><i class="ti ti-logout" style="font-size:12px;vertical-align:-1px;margin-right:3px"></i>Sign out</button>
+          </div>
         </div>
         <div class="net-worth">${fmt(equity)}</div>
         <div class="nw-sub">Portfolio equity · ${fmtShort(this.getTotalPortfolioValue())} total value</div>
@@ -422,8 +426,27 @@ window.App={
     const btn=document.getElementById('confirm-expense-btn');btn.classList.add('loading');btn.innerHTML='<span class="spinner"></span>';
     let receiptUrl=null;if(this.state.scanFile)receiptUrl=await this.uploadReceipt(this.state.scanFile).catch(()=>null);
     const exp=await DB.insert('expenses',{name,amount,category:cat,date,receipt_url:receiptUrl,is_recurring:isRecurring,recurrence});
-    this.state.expenses.unshift(exp);this.state.scanFile=null;this.closeSheet('scanSheet');this.renderExpenses();this.renderDashboard();
-    this.showToast('Expense added!','success');btn.classList.remove('loading');btn.innerHTML='<i class="ti ti-check"></i> Save expense';
+    this.state.expenses.unshift(exp);this.state.scanFile=null;this.closeSheet('scanSheet');
+
+    // Auto-deduct from lifestyle fund if category = Lifestyle
+    if(cat==='Lifestyle') {
+      const lifestyleGoal = this.state.goals.find(g=>g.goal_type==='lifestyle');
+      if(lifestyleGoal) {
+        const newBal = Math.max(0, parseNum(lifestyleGoal.lifestyle_balance) - amount);
+        await DB.update('goals', lifestyleGoal.id, {lifestyle_balance: newBal});
+        lifestyleGoal.lifestyle_balance = newBal;
+        const remaining = parseNum(lifestyleGoal.lifestyle_cap) - newBal;
+        this.showToast(`💸 ${fmt(amount)} deducted from ${lifestyleGoal.title} · ${fmt(newBal)} left`, 'success');
+        if(newBal <= 0) this.showToast(`⚠️ Lifestyle fund empty! Top up in Goals`, 'warning');
+        this.renderGoals();
+      } else {
+        this.showToast('Expense added! (No lifestyle fund set up yet)', 'success');
+      }
+    } else {
+      this.showToast('Expense added!','success');
+    }
+
+    this.renderExpenses();this.renderDashboard();btn.classList.remove('loading');btn.innerHTML='<i class="ti ti-check"></i> Save expense';
     const alert=this.getBudgetAlert(cat);if(alert&&alert.pct>=80)this.showToast(`⚠️ ${cat} at ${alert.pct}% of budget`,'warning');
   },
   async uploadReceipt(file){const ext=file.name.split('.').pop()||'jpg';const path=`receipts/${Date.now()}.${ext}`;const res=await fetch(`${DB.SUPABASE_URL}/storage/v1/object/receipts/${path}`,{method:'POST',headers:{'apikey':DB.SUPABASE_KEY,'Authorization':`Bearer ${DB.SUPABASE_KEY}`,'Content-Type':file.type},body:file});if(res.ok)return`${DB.SUPABASE_URL}/storage/v1/object/public/receipts/${path}`;return null;},
