@@ -48,6 +48,7 @@
 </div>
 
 <div class="phone">
+  <div class="status-bar">
     <span id="clock">9:41</span>
     <span style="display:flex;align-items:center;gap:4px"><span id="sync-dot" class="sync-dot"></span><span id="sync-label" style="font-size:10px;color:var(--muted)">Synced</span></span>
     <span><i class="ti ti-wifi" style="font-size:13px"></i></span>
@@ -258,8 +259,16 @@ const Auth = {
   },
   show(showLogin) {
     const ls = document.getElementById('login-screen');
-    if (showLogin) { ls.style.display = 'flex'; }
-    else { ls.style.display = 'none'; if (window.App) App.init(); }
+    if (showLogin) {
+      ls.style.display = 'flex';
+    } else {
+      ls.style.display = 'none';
+      // Clear stale offline cache so fresh data loads from Supabase
+      ['profiles','properties','expenses','goals','rental_income','tenants','maintenance_logs','budgets','income_entries'].forEach(k => localStorage.removeItem(k));
+      // Wait for App to be ready
+      const tryInit = () => { if (window.App && typeof App.init === 'function') { App.init(); } else { setTimeout(tryInit, 100); } };
+      tryInit();
+    }
   },
   toggleMode() {
     this.mode = this.mode === 'signin' ? 'signup' : 'signin';

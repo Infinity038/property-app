@@ -894,4 +894,8 @@ window.App={
   timeOfDay(){const h=new Date().getHours();return h<12?'morning':h<17?'afternoon':'evening';},
 };
 
-document.addEventListener('DOMContentLoaded',()=>App.init());
+document.addEventListener('DOMContentLoaded',()=>{
+  // Auth.init() handles calling App.init() after login
+  // Only auto-init App if no auth system present
+  if(typeof Auth === 'undefined') App.init();
+});
